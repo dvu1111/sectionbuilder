@@ -1,3 +1,4 @@
+
 import { Dimensions, GeometricProperties, ShapeType, CustomPart } from '../types';
 import * as d3 from 'd3';
 
@@ -26,4 +27,7 @@ export interface ShapeStrategy {
   // uiG: The UI/Dimension layer group
   // d: Dimensions
   draw?: (g: d3.Selection<SVGGElement, unknown, null, undefined>, uiG: d3.Selection<SVGGElement, unknown, null, undefined>, d: Dimensions) => void;
+
+  // Export geometry as parts for rotation/custom analysis
+  getCustomParts?: (d: Dimensions) => CustomPart[];
 }

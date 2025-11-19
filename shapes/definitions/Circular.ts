@@ -1,3 +1,4 @@
+
 import { ShapeType } from '../../types';
 import { ShapeStrategy } from '../types';
 import { drawDimensionLine } from '../utils';
@@ -33,5 +34,15 @@ export const CircularStrategy: ShapeStrategy = {
         .attr("opacity", 0.8);
         
     drawDimensionLine(uiG, 0, 0, r*0.707, -r*0.707, `R${r}`, -5, false);
+  },
+  getCustomParts: (d) => {
+    const r = d.radius || 10;
+    return [{
+        id: 'circle',
+        type: 'solid',
+        points: [],
+        isCircle: true,
+        circleParams: { x: 0, y: 0, r }
+    }];
   }
 };

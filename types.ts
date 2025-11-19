@@ -5,6 +5,7 @@ export enum ShapeType {
   I_SHAPE = 'I-Shape',
   T_SHAPE = 'T-Shape',
   CHANNEL = 'Channel',
+  ANGLE = 'Angle',
   CUSTOM = 'Custom Shape'
 }
 
@@ -56,4 +57,11 @@ export interface AIAnalysisResult {
   summary: string;
   recommendations: string[];
   suitability: string;
+}
+
+// Data structure to store initial state before a drag operation begins
+export interface DragStartData {
+  points?: Point[];
+  circleParams?: { x: number; y: number; r: number };
+  curves?: Record<number, { controlPoint: Point }>;
 }

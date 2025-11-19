@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { Dimensions, ShapeType, CustomPart, CustomPartType } from '../types';
 import { Play, Info, RotateCcw, PenTool, Circle, Undo, Trash2, BoxSelect, Square, MousePointer2, RotateCw, FlipHorizontal, FlipVertical, Plus, Spline } from 'lucide-react';
@@ -16,12 +17,14 @@ interface ControlPanelProps {
   setDrawMode: (m: 'select' | 'polygon' | 'circle' | 'add_node' | 'bend') => void;
   drawType: CustomPartType;
   setDrawType: (t: CustomPartType) => void;
-  selectedPartId: string | null;
-  setSelectedPartId: (id: string | null) => void;
+  selectedPartIds: string[];
+  setSelectedPartIds: (ids: string[]) => void;
   selectedCurveIndex: number | null;
   setSelectedCurveIndex: (index: number | null) => void;
   onRotate: (dir: 'cw' | 'ccw') => void;
   onMirror: (axis: 'horizontal' | 'vertical') => void;
+  rotation: number;
+  setRotation: (deg: number) => void;
 }
 
 interface InputFieldProps {
@@ -60,12 +63,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   setDrawMode,
   drawType,
   setDrawType,
-  selectedPartId,
-  setSelectedPartId,
+  selectedPartIds,
+  setSelectedPartIds,
   selectedCurveIndex,
   setSelectedCurveIndex,
   onRotate,
-  onMirror
+  onMirror,
+  rotation,
+  setRotation
 }) => {
   
   const handleChange = (key: keyof Dimensions, value: string) => {
@@ -84,15 +89,20 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   };
 
   const handleDeleteSelected = () => {
-    if (selectedPartId && onCustomPartsChange) {
-        onCustomPartsChange(customParts.filter(p => p.id !== selectedPartId));
+    if (selectedPartIds.length > 0 && onCustomPartsChange) {
+        onCustomPartsChange(customParts.filter(p => !selectedPartIds.includes(p.id)));
+        setSelectedPartIds([]);
     }
   }
   
+  // Determine single part ID for specific editing
+  const isSingleSelection = selectedPartIds.length === 1;
+  const singlePartId = isSingleSelection ? selectedPartIds[0] : null;
+
   // Handle Radius Change for Curved Segments
   const getSelectedCurveRadius = () => {
-      if (!selectedPartId || selectedCurveIndex === null) return undefined;
-      const part = customParts.find(p => p.id === selectedPartId);
+      if (!singlePartId || selectedCurveIndex === null) return undefined;
+      const part = customParts.find(p => p.id === singlePartId);
       if (!part || !part.curves || !part.curves[selectedCurveIndex]) return undefined;
       
       const cp = part.curves[selectedCurveIndex].controlPoint;
@@ -104,8 +114,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   };
 
   const handleCurveRadiusChange = (newR: number) => {
-      if (!selectedPartId || selectedCurveIndex === null || !onCustomPartsChange) return;
-      const part = customParts.find(p => p.id === selectedPartId);
+      if (!singlePartId || selectedCurveIndex === null || !onCustomPartsChange) return;
+      const part = customParts.find(p => p.id === singlePartId);
       if (!part || !part.curves || !part.curves[selectedCurveIndex]) return;
 
       const p1 = part.points[selectedCurveIndex];
@@ -113,33 +123,18 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       const oldCp = part.curves[selectedCurveIndex].controlPoint;
       
       // Re-calculate control point based on new Radius
-      // 1. Find chord midpoint
       const mid = { x: (p1.x + p2.x)/2, y: (p1.y + p2.y)/2 };
-      // 2. Chord length half
       const dX = p2.x - p1.x;
       const dY = p2.y - p1.y;
       const L = Math.sqrt(dX*dX + dY*dY);
       
       if (newR < L/2) newR = L/2 + 0.1; // Clamp minimum radius
       
-      // 3. Sagitta (height)
       const h = newR - Math.sqrt(newR*newR - (L/2)*(L/2));
       
-      // 4. Determine direction. Using oldCp.
-      // Vector perpendicular to chord
       const norm = { x: -dY, y: dX };
       const lenNorm = Math.sqrt(norm.x*norm.x + norm.y*norm.y);
       const unitNorm = { x: norm.x/lenNorm, y: norm.y/lenNorm };
-      
-      // Check side of oldCp relative to chord
-      // Cross product z component of (p2-p1) x (oldCp - p1)
-      const crossOld = (p2.x - p1.x) * (oldCp.y - p1.y) - (p2.y - p1.y) * (oldCp.x - p1.x);
-      // If crossOld > 0, "left" side.
-      
-      // Does this simple sagitta calculation assume arc < 180? Yes. 
-      // For dragging/radius editing, assuming minor arc usually. 
-      // However, if user dragged to major arc, this might flip it.
-      // Let's just project along the perpendicular from mid towards oldCp direction.
       
       const vecMidToOld = { x: oldCp.x - mid.x, y: oldCp.y - mid.y };
       const dot = vecMidToOld.x * unitNorm.x + vecMidToOld.y * unitNorm.y;
@@ -164,7 +159,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     <div className="space-y-4">
         <div className="text-xs text-gray-400 bg-slate-800 p-2 rounded border border-slate-700">
             {drawMode === 'select' 
-                ? selectedPartId ? "Drag corners or purple curve handles. Edit radius below." : "Click a shape to edit."
+                ? selectedPartIds.length > 0 ? `${selectedPartIds.length} shape(s) selected. Drag to move.` : "Click shapes to select. Shift+Click to multi-select."
                 : drawMode === 'add_node'
                     ? "Click on a line segment to add a new vertex."
                 : drawMode === 'bend'
@@ -235,9 +230,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             </div>
         </div>
 
-        {drawMode === 'select' && selectedPartId && (
+        {drawMode === 'select' && selectedPartIds.length > 0 && (
           <div className="bg-slate-800 p-2 rounded border border-slate-700 animate-in fade-in">
-             <label className="block text-xs font-bold text-gray-300 mb-2">Transform Selected</label>
+             <label className="block text-xs font-bold text-gray-300 mb-2">Transform Selected ({selectedPartIds.length})</label>
              <div className="grid grid-cols-4 gap-2 mb-2">
                  <button onClick={() => onRotate('ccw')} title="Rotate -90°" className="p-1 bg-slate-700 rounded hover:bg-slate-600 flex justify-center text-white"><RotateCcw size={16} /></button>
                  <button onClick={() => onRotate('cw')} title="Rotate +90°" className="p-1 bg-slate-700 rounded hover:bg-slate-600 flex justify-center text-white"><RotateCw size={16} /></button>
@@ -245,7 +240,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                  <button onClick={() => onMirror('vertical')} title="Flip Vertical" className="p-1 bg-slate-700 rounded hover:bg-slate-600 flex justify-center text-white"><FlipVertical size={16} /></button>
              </div>
              
-             {selectedCurveIndex !== null && (
+             {selectedCurveIndex !== null && isSingleSelection && (
                  <div className="mb-2 border-t border-slate-600 pt-2">
                      <label className="block text-xs font-bold text-purple-300 mb-1">Curve Radius</label>
                      <div className="flex rounded-md shadow-sm">
@@ -299,15 +294,26 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <div className="border-t border-slate-700 pt-4">
             <h3 className="text-sm font-bold mb-2 text-gray-300">History ({customParts.length})</h3>
             <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
-                {customParts.map((part, i) => (
+                {customParts.map((part, i) => {
+                    const isSelected = selectedPartIds.includes(part.id);
+                    return (
                     <div 
                       key={part.id} 
-                      onClick={() => {
+                      onClick={(e) => {
                         setDrawMode('select');
-                        setSelectedPartId(part.id);
+                        if (e.shiftKey) {
+                            if (isSelected) {
+                                setSelectedPartIds(selectedPartIds.filter(id => id !== part.id));
+                            } else {
+                                setSelectedPartIds([...selectedPartIds, part.id]);
+                            }
+                        } else {
+                            setSelectedPartIds([part.id]);
+                        }
+                        setSelectedCurveIndex(null);
                       }}
                       className={`flex justify-between items-center text-xs p-2 rounded border cursor-pointer transition-colors ${
-                        part.id === selectedPartId ? 'bg-blue-900/50 border-blue-500' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'
+                        isSelected ? 'bg-blue-900/50 border-blue-500' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'
                       }`}
                     >
                         <span className={`flex items-center gap-2 ${part.type === 'solid' ? 'text-green-400' : 'text-red-400'}`}>
@@ -316,7 +322,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                         </span>
                         <span className="text-gray-500">#{i+1}</span>
                     </div>
-                ))}
+                );})}
                 {customParts.length === 0 && <span className="text-xs text-gray-500 italic">No parts drawn.</span>}
             </div>
         </div>
@@ -366,22 +372,48 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {shapeType === ShapeType.CUSTOM ? (
             renderCustomTools()
         ) : (
-            currentInputs?.map(field => (
-              <InputField
-                key={field.key}
-                label={field.label}
-                value={dimensions[field.key]}
-                onChange={(v) => handleChange(field.key, v)}
-                unit={field.unit}
-              />
-            ))
+            <>
+                {currentInputs?.map(field => (
+                  <InputField
+                    key={field.key}
+                    label={field.label}
+                    value={dimensions[field.key]}
+                    onChange={(v) => handleChange(field.key, v)}
+                    unit={field.unit}
+                  />
+                ))}
+                
+                <div className="mt-6 pt-6 border-t border-slate-700">
+                    <label className="block text-xs font-bold text-blue-400 mb-3 uppercase tracking-wider">Orientation</label>
+                    <div className="mb-3">
+                        <div className="flex justify-between text-xs text-gray-300 mb-1">
+                            <span>Rotation</span>
+                            <span>{rotation}°</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            min="0" max="360" step="1"
+                            value={rotation}
+                            onChange={(e) => setRotation(parseInt(e.target.value))}
+                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        />
+                        <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                            <span>0°</span>
+                            <span>90°</span>
+                            <span>180°</span>
+                            <span>270°</span>
+                            <span>360°</span>
+                        </div>
+                    </div>
+                </div>
+            </>
         )}
       </div>
 
        <div className="p-3 bg-slate-800 text-xs text-gray-400 border-t border-slate-700">
           <div className="flex gap-2 items-start">
              <Info size={14} className="mt-0.5 flex-shrink-0" />
-             <span>{shapeType === ShapeType.CUSTOM ? 'Use the tool panel to switch modes.' : 'Input values in millimeters.'}</span>
+             <span>{shapeType === ShapeType.CUSTOM ? 'Use the tool panel to switch modes.' : 'Input values in millimeters. Rotation is CCW.'}</span>
           </div>
        </div>
     </div>

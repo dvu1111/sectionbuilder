@@ -1,3 +1,4 @@
+
 import { ShapeType } from '../../types';
 import { ShapeStrategy } from '../types';
 import { rectProps, drawDimensionLine } from '../utils';
@@ -43,5 +44,19 @@ export const RectangularStrategy: ShapeStrategy = {
     
     drawDimensionLine(uiG, w/2 + 20, -h/2, w/2 + 20, h/2, `${h} mm`, 10, true);
     drawDimensionLine(uiG, -w/2, -h/2 - 20, w/2, -h/2 - 20, `${w} mm`, -5, false);
+  },
+  getCustomParts: (d) => {
+    const w = d.width;
+    const h = d.depth;
+    return [{
+        id: 'rect-main',
+        type: 'solid',
+        points: [
+            { x: -w/2, y: -h/2 },
+            { x: w/2, y: -h/2 },
+            { x: w/2, y: h/2 },
+            { x: -w/2, y: h/2 }
+        ]
+    }];
   }
 };

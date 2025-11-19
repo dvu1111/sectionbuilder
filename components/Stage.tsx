@@ -1,9 +1,12 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { Dimensions, ShapeType, CustomPart, Point, CustomPartType } from '../types';
-import { calculateProperties } from '../utils/math';
+import { Dimensions, ShapeType, CustomPart, Point, CustomPartType, DragStartData } from '../types';
 import { getShapeStrategy } from '../shapes';
-import { getCircleFromThreePoints } from '../shapes/utils';
+import { findClosestPointOnSegment, calculateCentroidFromParts } from '../shapes/utils';
+import { setupGrid, setupZoom } from './stage-logic/canvasSetup';
+import { renderCustomShapes } from './stage-logic/renderCustomShapes';
+import { renderPreviews } from './stage-logic/renderPreviews';
 
 interface StageProps {
   shapeType: ShapeType;
@@ -13,10 +16,11 @@ interface StageProps {
   drawMode: 'select' | 'polygon' | 'circle' | 'add_node' | 'bend';
   setDrawMode: (mode: 'select' | 'polygon' | 'circle' | 'add_node' | 'bend') => void;
   drawType: CustomPartType;
-  selectedPartId: string | null;
-  setSelectedPartId: (id: string | null) => void;
+  selectedPartIds: string[];
+  setSelectedPartIds: (ids: string[]) => void;
   selectedCurveIndex: number | null;
   setSelectedCurveIndex: (index: number | null) => void;
+  rotation?: number;
 }
 
 export const Stage: React.FC<StageProps> = ({ 
@@ -27,15 +31,17 @@ export const Stage: React.FC<StageProps> = ({
   drawMode,
   setDrawMode,
   drawType,
-  selectedPartId,
-  setSelectedPartId,
+  selectedPartIds,
+  setSelectedPartIds,
   selectedCurveIndex,
-  setSelectedCurveIndex
+  setSelectedCurveIndex,
+  rotation = 0
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const rootGRef = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
   const transformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity.translate(0,0).scale(1));
   const containerRef = useRef<HTMLDivElement>(null);
+  const dragStartMap = useRef<Map<string, DragStartData>>(new Map());
   
   const [currentPoints, setCurrentPoints] = useState<Point[]>([]);
   const [circleStart, setCircleStart] = useState<Point | null>(null);
@@ -63,8 +69,6 @@ export const Stage: React.FC<StageProps> = ({
     g.append("g").attr("class", "shape-layer");
     g.append("g").attr("class", "ui-layer");
 
-    // Delay initial zoom slightly to ensure container has size, 
-    // though absolute positioning should fix the race condition mostly.
     const rect = containerRef.current?.getBoundingClientRect();
     if (rect && rect.width && rect.height) {
         const t = d3.zoomIdentity.translate(rect.width/2, rect.height/2).scale(0.8);
@@ -76,28 +80,7 @@ export const Stage: React.FC<StageProps> = ({
   // 2. ZOOM BEHAVIOR EFFECT
   useEffect(() => {
     if (!svgRef.current || !rootGRef.current) return;
-    const svg = d3.select(svgRef.current);
-    const g = rootGRef.current;
-
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 10])
-      .on("zoom", (event) => {
-        transformRef.current = event.transform;
-        g.attr("transform", event.transform.toString());
-      });
-
-    if (shapeType === ShapeType.CUSTOM) {
-        zoom.filter((event) => {
-            return event.type === 'wheel' || event.button === 1 || event.ctrlKey || event.metaKey;
-        });
-    } else {
-        zoom.filter(() => true);
-    }
-
-    svg.call(zoom).on("dblclick.zoom", null);
-    // Re-apply current transform to ensure sync
-    svg.call(zoom.transform, transformRef.current);
-
+    setupZoom(d3.select(svgRef.current), rootGRef.current, transformRef, shapeType);
   }, [shapeType]);
 
   // 3. KEYBOARD HANDLERS
@@ -106,14 +89,21 @@ export const Stage: React.FC<StageProps> = ({
       if (e.key === 'Escape') {
         setCurrentPoints([]);
         setCircleStart(null);
-        setSelectedPartId(null);
+        setSelectedPartIds([]);
         setSelectedCurveIndex(null);
         setPreviewNode(null);
+      }
+      // Select All
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        if (shapeType === ShapeType.CUSTOM) {
+            e.preventDefault();
+            setSelectedPartIds(customParts.map(p => p.id));
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setSelectedPartId, setSelectedCurveIndex]);
+  }, [setSelectedPartIds, setSelectedCurveIndex, customParts, shapeType]);
 
   // 4. RENDERING EFFECT
   useEffect(() => {
@@ -130,414 +120,79 @@ export const Stage: React.FC<StageProps> = ({
     uiG.selectAll("*").remove();
 
     // --- DRAW GRID ---
-    const gridSize = 50;
-    const gridRange = 5000;
-    
-    for (let i = -gridRange; i <= gridRange; i += gridSize) {
-        gridG.append("line")
-            .attr("x1", i).attr("y1", -gridRange)
-            .attr("x2", i).attr("y2", gridRange)
-            .attr("stroke", "#ccc").attr("stroke-width", 1);
-    }
-    for (let i = -gridRange; i <= gridRange; i += gridSize) {
-        gridG.append("line")
-            .attr("x1", -gridRange).attr("y1", i)
-            .attr("x2", gridRange).attr("y2", i)
-            .attr("stroke", "#ccc").attr("stroke-width", 1);
-    }
-    
-    gridG.append("line").attr("x1", -gridRange).attr("y1", 0).attr("x2", gridRange).attr("y2", 0).attr("stroke", "#666").attr("stroke-width", 2);
-    gridG.append("line").attr("x1", 0).attr("y1", -gridRange).attr("x2", 0).attr("y2", gridRange).attr("stroke", "#666").attr("stroke-width", 2);
+    setupGrid(gridG);
 
-    // --- STRATEGY PATTERN: DELEGATE DRAWING ---
+    // --- STRATEGY PATTERN: DELEGATE DRAWING (Standard Shapes) ---
     const strategy = getShapeStrategy(shapeType);
-
     if (strategy.draw && shapeType !== ShapeType.CUSTOM) {
-       // Standard shapes use the draw method from strategy
-       strategy.draw(shapeG, uiG, dimensions);
+       // For rotation to be intuitive, we must pivot around the Centroid, not the bounding box center.
+       // 1. Calculate the centroid of the unrotated shape in drawing coordinates
+       let pivotX = 0;
+       let pivotY = 0;
+       if (strategy.getCustomParts) {
+           const parts = strategy.getCustomParts(dimensions);
+           const c = calculateCentroidFromParts(parts);
+           pivotX = c.x;
+           pivotY = c.y;
+       }
+
+       // 2. Apply Rotation around this pivot point
+       // SVG Rotate (deg, cx, cy) works exactly this way
+       const rotatedG = shapeG.append("g")
+           .attr("transform", `rotate(${-rotation}, ${pivotX}, ${pivotY})`); 
+       
+       const rotatedUIG = uiG.append("g")
+           .attr("transform", `rotate(${-rotation}, ${pivotX}, ${pivotY})`);
+
+       strategy.draw(rotatedG, rotatedUIG, dimensions);
     }
 
-    // --- CUSTOM DRAWING RENDERER (Handles Interaction) ---
+    // --- CUSTOM DRAWING RENDERER ---
     if (shapeType === ShapeType.CUSTOM) {
-        const fillStyle = "#94a3b8"; 
-        const strokeStyle = "#1e293b";
-        
-        // 1. Render Completed Parts
-        customParts.forEach(part => {
-            const isSelected = part.id === selectedPartId;
-            // Allow pointer events in add_node or bend mode
-            const pointerEvents = (drawMode === 'select' || drawMode === 'add_node' || drawMode === 'bend') ? 'all' : 'none';
-            
-            let el: d3.Selection<any, any, null, undefined>;
-
-            if (part.isCircle && part.circleParams) {
-                const { x, y, r } = part.circleParams;
-                el = shapeG.append("circle")
-                    .attr("cx", x).attr("cy", y).attr("r", r);
-            } else {
-                // Manual Path Construction for Curves
-                const path = d3.path();
-                const pts = part.points;
-                
-                // We construct the D string manually to support Arcs properly
-                let dStr = "";
-                if (pts.length > 0) {
-                    dStr += `M ${pts[0].x},${pts[0].y}`;
-                    for (let i = 0; i < pts.length; i++) {
-                        const p1 = pts[i];
-                        const p2 = pts[(i + 1) % pts.length];
-                        
-                        if (part.curves && part.curves[i]) {
-                            const cp = part.curves[i].controlPoint;
-                            const circle = getCircleFromThreePoints(p1, cp, p2);
-                            if (circle) {
-                                const startAngle = Math.atan2(p1.y - circle.y, p1.x - circle.x);
-                                const midAngle = Math.atan2(cp.y - circle.y, cp.x - circle.x);
-                                const endAngle = Math.atan2(p2.y - circle.y, p2.x - circle.x);
-                                let d1 = midAngle - startAngle;
-                                while (d1 <= -Math.PI) d1 += 2*Math.PI;
-                                while (d1 > Math.PI) d1 -= 2*Math.PI;
-                                let d2 = endAngle - midAngle;
-                                while (d2 <= -Math.PI) d2 += 2*Math.PI;
-                                while (d2 > Math.PI) d2 -= 2*Math.PI;
-                                const totalSweep = d1 + d2;
-                                const sweepFlag = totalSweep >= 0 ? 1 : 0;
-                                const largeArcFlag = Math.abs(totalSweep) > Math.PI ? 1 : 0;
-                                
-                                dStr += ` A ${circle.r} ${circle.r} 0 ${largeArcFlag} ${sweepFlag} ${p2.x},${p2.y}`;
-                            } else {
-                                dStr += ` L ${p2.x},${p2.y}`;
-                            }
-                        } else {
-                            dStr += ` L ${p2.x},${p2.y}`;
-                        }
-                    }
-                    dStr += " Z";
-                }
-
-                el = shapeG.append("path")
-                    .attr("d", dStr);
-            }
-            
-            el.attr("fill", part.type === 'solid' ? fillStyle : 'white')
-              .attr("stroke", isSelected ? "#3b82f6" : (part.type === 'solid' ? strokeStyle : 'red'))
-              .attr("stroke-width", isSelected ? 3 : 2)
-              .attr("stroke-dasharray", part.type === 'solid' ? null : "4,2")
-              .attr("fill-opacity", part.type === 'solid' ? 0.8 : 1)
-              .attr("cursor", drawMode === 'select' ? "move" : (drawMode === 'add_node' || drawMode === 'bend' ? "crosshair" : "default"))
-              .attr("pointer-events", pointerEvents);
-              
-            el.on("click", (e) => {
-                  if (drawMode === 'select') {
-                      e.stopPropagation();
-                      setSelectedPartId(part.id);
-                      setSelectedCurveIndex(null);
-                  }
-            });
-
-            if (drawMode === 'select' && onCustomPartsChange) {
-                const dragMove = d3.drag<any, any>()
-                    .filter(event => !event.ctrlKey && !event.button)
-                    .on("start", function(event) {
-                        (this as any)._startPos = { x: event.x, y: event.y };
-                        (this as any)._initialPoints = part.isCircle ? null : part.points.map(p => ({...p}));
-                        (this as any)._initialCircle = part.isCircle ? {...part.circleParams} : null;
-                        (this as any)._initialCurves = part.curves ? JSON.parse(JSON.stringify(part.curves)) : {};
-                        setSelectedPartId(part.id);
-                        setSelectedCurveIndex(null);
-                    })
-                    .on("drag", function(event) {
-                         const startPos = (this as any)._startPos;
-                         const initialPoints = (this as any)._initialPoints;
-                         const initialCircle = (this as any)._initialCircle;
-                         const initialCurves = (this as any)._initialCurves;
-                         
-                         let dx = event.x - startPos.x;
-                         let dy = event.y - startPos.y;
-                         
-                         if (initialCircle) {
-                             const newCircle = { ...initialCircle, x: initialCircle.x + dx, y: initialCircle.y + dy };
-                             onCustomPartsChange(customParts.map(p => p.id === part.id ? { ...p, circleParams: newCircle } : p));
-                         } else if (initialPoints) {
-                             const newPoints = initialPoints.map((p: Point) => ({
-                                 x: p.x + dx,
-                                 y: p.y + dy
-                             }));
-                             
-                             const newCurves: Record<number, any> = {};
-                             if (initialCurves) {
-                                 Object.keys(initialCurves).forEach(k => {
-                                     const idx = parseInt(k);
-                                     newCurves[idx] = {
-                                         controlPoint: {
-                                             x: initialCurves[idx].controlPoint.x + dx,
-                                             y: initialCurves[idx].controlPoint.y + dy
-                                         }
-                                     };
-                                 });
-                             }
-
-                             onCustomPartsChange(customParts.map(p => p.id === part.id ? { ...p, points: newPoints, curves: newCurves } : p));
-                         }
-                    });
-                el.call(dragMove);
-            }
+        renderCustomShapes({
+            shapeG,
+            uiG,
+            customParts,
+            selectedPartIds,
+            drawMode,
+            dragStartMap: dragStartMap.current,
+            onCustomPartsChange,
+            setSelectedPartIds,
+            setSelectedCurveIndex,
+            selectedCurveIndex
         });
 
-        // 2. Vertex & Curve Handles (Edit Mode)
-        if (drawMode === 'select' && selectedPartId && onCustomPartsChange) {
-            const part = customParts.find(p => p.id === selectedPartId);
-            
-            if (part && !part.isCircle) {
-                // A. Vertex Handles
-                const dragVertex = d3.drag<SVGCircleElement, {x: number, y: number, index: number}>()
-                    .on("drag", (event, d) => {
-                        const newX = Math.round(event.x / 10) * 10;
-                        const newY = Math.round(event.y / 10) * 10;
-                        const newPoints = [...part.points];
-                        newPoints[d.index] = { x: newX, y: newY };
-                        onCustomPartsChange(customParts.map(p => 
-                            p.id === part.id ? { ...p, points: newPoints } : p
-                        ));
-                    });
-
-                const handleData = part.points.map((p, i) => ({ x: p.x, y: p.y, index: i }));
-                
-                uiG.selectAll(".vertex-handle")
-                    .data(handleData)
-                    .enter().append("circle")
-                    .attr("class", "vertex-handle")
-                    .attr("cx", d => d.x).attr("cy", d => d.y)
-                    .attr("r", 5)
-                    .attr("fill", "white")
-                    .attr("stroke", "#3b82f6")
-                    .attr("stroke-width", 2)
-                    .attr("cursor", "pointer")
-                    .call(dragVertex);
-
-                // B. Curve Handles
-                if (part.curves) {
-                    const curveData: {x: number, y: number, index: number}[] = [];
-                    Object.entries(part.curves).forEach(([idx, data]) => {
-                        curveData.push({ x: data.controlPoint.x, y: data.controlPoint.y, index: parseInt(idx) });
-                    });
-
-                    const dragCurve = d3.drag<SVGCircleElement, {x: number, y: number, index: number}>()
-                        .on("start", (e, d) => {
-                             setSelectedCurveIndex(d.index);
-                        })
-                        .on("drag", (event, d) => {
-                            const newX = Math.round(event.x / 10) * 10;
-                            const newY = Math.round(event.y / 10) * 10;
-                            
-                            const newCurves = { ...part.curves };
-                            newCurves[d.index] = { controlPoint: { x: newX, y: newY } };
-                            
-                            onCustomPartsChange(customParts.map(p => 
-                                p.id === part.id ? { ...p, curves: newCurves } : p
-                            ));
-                        });
-
-                    uiG.selectAll(".curve-handle")
-                        .data(curveData)
-                        .enter().append("circle")
-                        .attr("class", "curve-handle")
-                        .attr("cx", d => d.x).attr("cy", d => d.y)
-                        .attr("r", 4)
-                        .attr("fill", "#8b5cf6")
-                        .attr("stroke", "white")
-                        .attr("stroke-width", 2)
-                        .attr("cursor", "crosshair")
-                        .call(dragCurve)
-                        .on("click", (e, d) => {
-                            e.stopPropagation();
-                            setSelectedCurveIndex(d.index);
-                        });
-                        
-                    if (selectedCurveIndex !== null && part.curves[selectedCurveIndex]) {
-                         const selCp = part.curves[selectedCurveIndex].controlPoint;
-                         uiG.append("circle")
-                             .attr("cx", selCp.x).attr("cy", selCp.y).attr("r", 8)
-                             .attr("fill", "none").attr("stroke", "#8b5cf6").attr("stroke-width", 2);
-                    }
-                }
-
-            } else if (part && part.isCircle && part.circleParams) {
-                const { x, y, r } = part.circleParams;
-                
-                const dragCenter = d3.drag<SVGCircleElement, any>()
-                     .on("drag", (event) => {
-                         const newX = Math.round(event.x / 10) * 10;
-                         const newY = Math.round(event.y / 10) * 10;
-                         onCustomPartsChange(customParts.map(p => 
-                             p.id === part.id ? { ...p, circleParams: { ...part.circleParams!, x: newX, y: newY } } : p
-                         ));
-                     });
-
-                uiG.append("circle")
-                    .attr("cx", x).attr("cy", y).attr("r", 5)
-                    .attr("fill", "white").attr("stroke", "#3b82f6").attr("stroke-width", 2)
-                    .attr("cursor", "move")
-                    .call(dragCenter);
-
-                const dragRadius = d3.drag<SVGCircleElement, any>()
-                    .on("drag", (event) => {
-                        const dx = event.x - x;
-                        const dy = event.y - y;
-                        const newR = Math.sqrt(dx*dx + dy*dy);
-                        const snappedR = Math.max(10, Math.round(newR / 5) * 5);
-                        
-                        onCustomPartsChange(customParts.map(p => 
-                            p.id === part.id ? { ...p, circleParams: { ...part.circleParams!, r: snappedR } } : p
-                        ));
-                    });
-
-                uiG.append("circle")
-                    .attr("cx", x + r).attr("cy", y).attr("r", 5)
-                    .attr("fill", "white").attr("stroke", "#3b82f6").attr("stroke-width", 2)
-                    .attr("cursor", "ew-resize")
-                    .call(dragRadius);
-            }
-        }
-
-        // 3. Previews
-        if (drawMode === 'add_node' && previewNode) {
-           uiG.append("circle")
-             .attr("cx", previewNode.x)
-             .attr("cy", previewNode.y)
-             .attr("r", 6)
-             .attr("fill", "#3b82f6")
-             .attr("stroke", "white")
-             .attr("stroke-width", 2)
-             .attr("pointer-events", "none");
-        }
-        
-        if (drawMode === 'bend' && previewBend && previewBend.partId) {
-            // Highlight the segment
-            const part = customParts.find(p => p.id === previewBend.partId);
-            if (part && !part.isCircle) {
-                 const p1 = part.points[previewBend.segmentIndex];
-                 const p2 = part.points[(previewBend.segmentIndex + 1) % part.points.length];
-                 uiG.append("line")
-                     .attr("x1", p1.x).attr("y1", p1.y)
-                     .attr("x2", p2.x).attr("y2", p2.y)
-                     .attr("stroke", "#8b5cf6")
-                     .attr("stroke-width", 3)
-                     .attr("pointer-events", "none");
-            }
-        }
-
-        // 4. Render Active Drawing (Ghost)
-        if (drawMode === 'polygon' && currentPoints.length > 0) {
-            const line = d3.line<Point>().x(d => d.x).y(d => d.y);
-            uiG.append("path")
-                .datum(currentPoints)
-                .attr("d", line)
-                .attr("fill", "none")
-                .attr("stroke", "blue")
-                .attr("stroke-width", 1.5)
-                .attr("stroke-dasharray", "5,5")
-                .attr("pointer-events", "none");
-
-            uiG.selectAll(".node")
-                .data(currentPoints)
-                .enter().append("circle")
-                .attr("class", "node")
-                .attr("cx", d => d.x).attr("cy", d => d.y).attr("r", 4)
-                .attr("fill", "white").attr("stroke", "blue")
-                .attr("pointer-events", "none");
-
-            if (mousePos) {
-                const lastPt = currentPoints[currentPoints.length - 1];
-                uiG.append("line")
-                    .attr("x1", lastPt.x).attr("y1", lastPt.y)
-                    .attr("x2", mousePos.x).attr("y2", mousePos.y)
-                    .attr("stroke", "blue").attr("stroke-width", 1).attr("opacity", 0.5)
-                    .attr("pointer-events", "none");
-            }
-        }
-
-        if (drawMode === 'circle' && circleStart && mousePos) {
-            const r = Math.sqrt(Math.pow(mousePos.x - circleStart.x, 2) + Math.pow(mousePos.y - circleStart.y, 2));
-            uiG.append("circle")
-                .attr("cx", circleStart.x).attr("cy", circleStart.y).attr("r", r)
-                .attr("fill", "none").attr("stroke", "blue")
-                .attr("stroke-width", 1.5)
-                .attr("stroke-dasharray", "5,5")
-                .attr("pointer-events", "none");
-            
-            uiG.append("line")
-                .attr("x1", circleStart.x).attr("y1", circleStart.y)
-                .attr("x2", mousePos.x).attr("y2", mousePos.y)
-                .attr("stroke", "blue").attr("opacity", 0.5)
-                .attr("pointer-events", "none");
-
-            uiG.append("circle")
-                .attr("cx", circleStart.x).attr("cy", circleStart.y).attr("r", 3)
-                .attr("fill", "blue")
-                .attr("pointer-events", "none");
-        }
-    }
-
-    // --- CENTROID MARKER ---
-    let cx = 0;
-    let cy = 0;
-    let showMarker = true;
-
-    if (shapeType === ShapeType.CUSTOM) {
-        if (customParts.length > 0) {
-             const props = calculateProperties(ShapeType.CUSTOM, dimensions, customParts);
-             cx = props.centroid.z; 
-             cy = props.centroid.y;
-        } else {
-            showMarker = false;
-        }
+        renderPreviews({
+            uiG,
+            drawMode,
+            currentPoints,
+            mousePos,
+            circleStart,
+            previewNode,
+            previewBend,
+            customParts,
+            shapeType,
+            dimensions,
+            rotation: 0
+        });
     } else {
-        const props = calculateProperties(shapeType, dimensions);
-        let maxW = Math.max(dimensions.width, dimensions.widthBottom || 0);
-        let maxH = dimensions.depth;
-
-        // FIX: Calculate correct bounding box for Circular shape to center centroid
-        if (shapeType === ShapeType.CIRCULAR) {
-            const r = dimensions.radius || 0;
-            maxW = r * 2;
-            maxH = r * 2;
-        }
-
-        cx = props.centroid.z - maxW/2;
-        cy = -(props.centroid.y - maxH/2);
-    }
-    
-    if (showMarker) {
-        const markerG = uiG.append("g")
-            .attr("class", "centroid")
-            .attr("transform", `translate(${cx}, ${cy})`)
-            .attr("pointer-events", "none");
-
-        markerG.append("circle")
-            .attr("r", 4)
-            .attr("fill", "rgba(255,0,0,0.8)")
-            .attr("stroke", "white")
-            .attr("stroke-width", 1);
-
-        markerG.append("line")
-            .attr("x1", -6).attr("y1", 0).attr("x2", 6).attr("y2", 0)
-            .attr("stroke", "white").attr("stroke-width", 1);
-            
-        markerG.append("line")
-            .attr("x1", 0).attr("y1", -6).attr("x2", 0).attr("y2", 6)
-            .attr("stroke", "white").attr("stroke-width", 1);
-
-        markerG.append("text")
-            .attr("x", 6)
-            .attr("y", -6)
-            .text("C")
-            .attr("fill", "red")
-            .attr("font-size", "12px")
-            .attr("font-weight", "bold");
+        // Render Centroid/Previews for standard shapes too
+         renderPreviews({
+            uiG,
+            drawMode,
+            currentPoints,
+            mousePos,
+            circleStart,
+            previewNode,
+            previewBend,
+            customParts,
+            shapeType,
+            dimensions,
+            rotation
+        });
     }
 
-  }, [dimensions, shapeType, customParts, currentPoints, mousePos, circleStart, drawMode, selectedPartId, previewNode, previewBend, selectedCurveIndex]);
+  }, [dimensions, shapeType, customParts, currentPoints, mousePos, circleStart, drawMode, selectedPartIds, previewNode, previewBend, selectedCurveIndex, rotation]);
 
   // --- INTERACTION HANDLERS ---
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -554,6 +209,7 @@ export const Stage: React.FC<StageProps> = ({
     const snap = 10;
     const snappedX = Math.round(gridX / snap) * snap;
     const snappedY = Math.round(gridY / snap) * snap;
+    const cursor = { x: gridX, y: gridY };
 
     setMousePos({ x: snappedX, y: snappedY });
 
@@ -564,26 +220,13 @@ export const Stage: React.FC<StageProps> = ({
         
         customParts.forEach(part => {
             if (part.isCircle) return;
-            if (selectedPartId && part.id !== selectedPartId) return; 
 
             const pts = part.points;
             for (let i = 0; i < pts.length; i++) {
                 const p1 = pts[i];
                 const p2 = pts[(i + 1) % pts.length];
                 
-                const atob = { x: p2.x - p1.x, y: p2.y - p1.y };
-                const atop = { x: gridX - p1.x, y: gridY - p1.y };
-                const len2 = atob.x * atob.x + atob.y * atob.y;
-                let tVal = 0;
-                if (len2 !== 0) {
-                    tVal = (atop.x * atob.x + atop.y * atob.y) / len2;
-                }
-                tVal = Math.max(0, Math.min(1, tVal));
-                
-                const projX = p1.x + tVal * atob.x;
-                const projY = p1.y + tVal * atob.y;
-                
-                const dist = Math.sqrt((gridX - projX)**2 + (gridY - projY)**2);
+                const { projX, projY, dist } = findClosestPointOnSegment(p1, p2, cursor);
                 
                 if (dist < 15 && dist < closestDist) {
                     closestDist = dist;
@@ -663,7 +306,7 @@ export const Stage: React.FC<StageProps> = ({
                 newCurves[idx] = { controlPoint: cp };
                 
                 onCustomPartsChange(customParts.map(p => p.id === targetPart.id ? { ...p, curves: newCurves } : p));
-                setSelectedPartId(targetPart.id);
+                setSelectedPartIds([targetPart.id]);
                 setSelectedCurveIndex(idx);
                 setDrawMode('select');
             }
@@ -672,7 +315,7 @@ export const Stage: React.FC<StageProps> = ({
     }
 
     if (drawMode === 'select') {
-        setSelectedPartId(null);
+        setSelectedPartIds([]);
         setSelectedCurveIndex(null);
         return;
     }
@@ -742,7 +385,7 @@ export const Stage: React.FC<StageProps> = ({
       <svg ref={svgRef} className="w-full h-full block" />
       <div className="absolute bottom-4 left-4 bg-white/80 backdrop-blur p-2 rounded shadow text-xs text-gray-500 pointer-events-none select-none">
         {shapeType === ShapeType.CUSTOM 
-          ? "Use Control Panel to Switch Modes • Wheel/Middle-Click to Pan/Zoom • Esc to Cancel"
+          ? "Shift+Click to Multi-Select • Ctrl+A to Select All • Wheel to Zoom"
           : "Scroll to Zoom • Drag to Pan"
         }
       </div>

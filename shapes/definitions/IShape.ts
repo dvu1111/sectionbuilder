@@ -1,3 +1,4 @@
+
 import * as d3 from 'd3';
 import { ShapeType } from '../../types';
 import { ShapeStrategy } from '../types';
@@ -141,5 +142,33 @@ export const IShapeStrategy: ShapeStrategy = {
     const dimOffset = Math.max(wt, wb)/2 + 40;
     drawDimensionLine(uiG, dimOffset, -halfD, dimOffset, halfD, `${depth} mm`, 10, true);
     drawDimensionLine(uiG, -wt/2, -halfD - 20, wt/2, -halfD - 20, `${wt} mm`, -5, false);
+  },
+  getCustomParts: (d) => {
+    const wt = d.width; 
+    const wb = d.widthBottom || wt;
+    const depth = d.depth;
+    const tw = d.thicknessWeb || 10;
+    const tft = d.thicknessFlangeTop || 10;
+    const tfb = d.thicknessFlangeBottom || 10;
+    const halfD = depth/2;
+
+    return [{
+        id: 'i-shape',
+        type: 'solid',
+        points: [
+            { x: wb/2, y: halfD },
+            { x: wb/2, y: halfD - tfb },
+            { x: tw/2, y: halfD - tfb },
+            { x: tw/2, y: -halfD + tft },
+            { x: wt/2, y: -halfD + tft },
+            { x: wt/2, y: -halfD },
+            { x: -wt/2, y: -halfD },
+            { x: -wt/2, y: -halfD + tft },
+            { x: -tw/2, y: -halfD + tft },
+            { x: -tw/2, y: halfD - tfb },
+            { x: -wb/2, y: halfD - tfb },
+            { x: -wb/2, y: halfD }
+        ]
+    }];
   }
 };

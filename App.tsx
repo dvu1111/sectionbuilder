@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Stage } from './components/Stage';
 import { ControlPanel } from './components/ControlPanel';
@@ -12,11 +13,12 @@ const App: React.FC = () => {
   const [customParts, setCustomParts] = useState<CustomPart[]>([]);
   const [result, setResult] = useState<CalculationResult | null>(null);
   const [showResults, setShowResults] = useState(false);
+  const [rotation, setRotation] = useState<number>(0);
 
   // Custom Shape Tool States
   const [drawMode, setDrawMode] = useState<'select' | 'polygon' | 'circle' | 'add_node' | 'bend'>('select');
   const [drawType, setDrawType] = useState<CustomPartType>('solid');
-  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
   const [selectedCurveIndex, setSelectedCurveIndex] = useState<number | null>(null);
 
   // Reset dimensions when shape changes
@@ -27,8 +29,9 @@ const App: React.FC = () => {
     }
     setResult(null);
     setShowResults(false);
+    setRotation(0); // Reset rotation on shape change
     // Reset selection states
-    setSelectedPartId(null);
+    setSelectedPartIds([]);
     setSelectedCurveIndex(null);
     if (shape !== ShapeType.CUSTOM) {
       setDrawMode('select');
@@ -36,7 +39,7 @@ const App: React.FC = () => {
   };
 
   const handleSolve = () => {
-    const props = calculateProperties(selectedShape, dimensions, customParts);
+    const props = calculateProperties(selectedShape, dimensions, customParts, rotation);
     setResult({
       properties: props,
       timestamp: Date.now()
@@ -62,14 +65,14 @@ const App: React.FC = () => {
   };
 
   const handleRotate = (direction: 'cw' | 'ccw') => {
-    if (!selectedPartId) return;
+    if (selectedPartIds.length === 0) return;
     const angle = direction === 'cw' ? 90 : -90;
     const rad = (angle * Math.PI) / 180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
 
     setCustomParts(parts => parts.map(part => {
-      if (part.id !== selectedPartId) return part;
+      if (!selectedPartIds.includes(part.id)) return part;
       
       const center = getPartCenter(part);
       
@@ -103,10 +106,10 @@ const App: React.FC = () => {
   };
 
   const handleMirror = (axis: 'horizontal' | 'vertical') => {
-    if (!selectedPartId) return;
+    if (selectedPartIds.length === 0) return;
     
     setCustomParts(parts => parts.map(part => {
-      if (part.id !== selectedPartId) return part;
+      if (!selectedPartIds.includes(part.id)) return part;
       
       const center = getPartCenter(part);
 
@@ -153,10 +156,11 @@ const App: React.FC = () => {
             drawMode={drawMode}
             setDrawMode={setDrawMode}
             drawType={drawType}
-            selectedPartId={selectedPartId}
-            setSelectedPartId={setSelectedPartId}
+            selectedPartIds={selectedPartIds}
+            setSelectedPartIds={setSelectedPartIds}
             selectedCurveIndex={selectedCurveIndex}
             setSelectedCurveIndex={setSelectedCurveIndex}
+            rotation={rotation}
           />
           
           <ResultsModal 
@@ -179,22 +183,25 @@ const App: React.FC = () => {
         onReset={() => {
              if (selectedShape === ShapeType.CUSTOM) {
                  setCustomParts([]);
-                 setSelectedPartId(null);
+                 setSelectedPartIds([]);
                  setSelectedCurveIndex(null);
              } else {
                  setDimensions(initialDimensions(selectedShape));
+                 setRotation(0);
              }
         }}
         drawMode={drawMode}
         setDrawMode={setDrawMode}
         drawType={drawType}
         setDrawType={setDrawType}
-        selectedPartId={selectedPartId}
-        setSelectedPartId={setSelectedPartId}
+        selectedPartIds={selectedPartIds}
+        setSelectedPartIds={setSelectedPartIds}
         selectedCurveIndex={selectedCurveIndex}
         setSelectedCurveIndex={setSelectedCurveIndex}
         onRotate={handleRotate}
         onMirror={handleMirror}
+        rotation={rotation}
+        setRotation={setRotation}
       />
     </div>
   );

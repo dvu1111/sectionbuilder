@@ -1,3 +1,4 @@
+
 import * as d3 from 'd3';
 import { ShapeType } from '../../types';
 import { ShapeStrategy } from '../types';
@@ -101,5 +102,26 @@ export const TShapeStrategy: ShapeStrategy = {
 
      drawDimensionLine(uiG, b/2 + 20, -h/2, b/2 + 20, h/2, `${h} mm`, 10, true);
      drawDimensionLine(uiG, -b/2, -h/2 - 20, b/2, -h/2 - 20, `${b} mm`, -5, false);
+  },
+  getCustomParts: (d) => {
+    const b = d.width;
+    const h = d.depth;
+    const tf = d.thickness || 20;
+    const tw = d.thicknessWeb || 20;
+
+    return [{
+        id: 't-shape',
+        type: 'solid',
+        points: [
+            { x: -b/2, y: -h/2 },
+            { x: b/2, y: -h/2 },
+            { x: b/2, y: -h/2 + tf },
+            { x: tw/2, y: -h/2 + tf },
+            { x: tw/2, y: h/2 },
+            { x: -tw/2, y: h/2 },
+            { x: -tw/2, y: -h/2 + tf },
+            { x: -b/2, y: -h/2 + tf }
+        ]
+    }];
   }
 };

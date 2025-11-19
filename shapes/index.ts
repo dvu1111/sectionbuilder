@@ -7,6 +7,7 @@ import { IShapeStrategy } from './definitions/IShape';
 import { CustomStrategy } from './definitions/Custom';
 import { TShapeStrategy } from './definitions/TShape';
 import { ChannelStrategy } from './definitions/Channel';
+import { AngleStrategy } from './definitions/Angle';
 
 export const SHAPE_REGISTRY: Record<ShapeType, ShapeStrategy> = {
   [ShapeType.RECTANGULAR]: RectangularStrategy,
@@ -15,7 +16,8 @@ export const SHAPE_REGISTRY: Record<ShapeType, ShapeStrategy> = {
   [ShapeType.I_SHAPE]: IShapeStrategy,
   [ShapeType.CUSTOM]: CustomStrategy,
   [ShapeType.T_SHAPE]: TShapeStrategy,
-  [ShapeType.CHANNEL]: ChannelStrategy
+  [ShapeType.CHANNEL]: ChannelStrategy,
+  [ShapeType.ANGLE]: AngleStrategy
 };
 
 export const getShapeStrategy = (type: ShapeType): ShapeStrategy => {

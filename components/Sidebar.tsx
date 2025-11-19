@@ -1,7 +1,7 @@
 import React from 'react';
 import { SHAPES } from '../constants';
 import { ShapeType } from '../types';
-import { Square, Circle, BoxSelect, Type, Triangle, PenTool, PanelTop, PanelLeft, Baseline, Magnet } from 'lucide-react';
+import { Square, Circle, BoxSelect, Type, Triangle, PenTool, PanelTop, PanelLeft, Baseline, Magnet, Crop } from 'lucide-react';
 
 interface SidebarProps {
   selectedShape: ShapeType;
@@ -18,7 +18,8 @@ const IconMap: Record<string, React.ElementType> = {
   PanelTop,
   PanelLeft,
   Baseline,
-  Magnet
+  Magnet,
+  Crop
 };
 
 export const Sidebar: React.FC<SidebarProps> = ({ selectedShape, onSelectShape }) => {

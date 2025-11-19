@@ -1,3 +1,4 @@
+
 import * as d3 from 'd3';
 import { ShapeType } from '../../types';
 import { ShapeStrategy } from '../types';
@@ -69,5 +70,29 @@ export const HollowRectangularStrategy: ShapeStrategy = {
 
     drawDimensionLine(uiG, w/2 + 30, -h/2, w/2 + 30, h/2, `${h} mm`, 10, true);
     drawDimensionLine(uiG, -w/2, -h/2 - 30, w/2, -h/2 - 30, `${w} mm`, -5, false);
+  },
+  getCustomParts: (d) => {
+    const w = d.width;
+    const h = d.depth;
+    const t = d.thickness || 0;
+    const validTh = Math.min(t, w/2, h/2);
+    const iw = w - 2 * validTh; 
+    const ih = h - 2 * validTh;
+
+    const outer = {
+        id: 'outer', type: 'solid' as const, points: [
+            { x: -w/2, y: -h/2 }, { x: w/2, y: -h/2 }, { x: w/2, y: h/2 }, { x: -w/2, y: h/2 }
+        ]
+    };
+    
+    if (iw > 0 && ih > 0) {
+        const inner = {
+             id: 'inner', type: 'hole' as const, points: [
+                 { x: -iw/2, y: -ih/2 }, { x: iw/2, y: -ih/2 }, { x: iw/2, y: ih/2 }, { x: -iw/2, y: ih/2 }
+             ]
+        };
+        return [outer, inner];
+    }
+    return [outer];
   }
 };

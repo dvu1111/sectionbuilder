@@ -1,5 +1,6 @@
+
 import * as d3 from 'd3';
-import { Point } from '../types';
+import { Point, CustomPart } from '../types';
 
 // --- MATH UTILS ---
 
@@ -9,6 +10,47 @@ export const rectProps = (b: number, h: number, yCentroid: number, zCentroid: nu
   const Iz_local = (b * Math.pow(h, 3)) / 12;
   const Iy_local = (h * Math.pow(b, 3)) / 12;
   return { area, h, b, y: yCentroid, z: zCentroid, Iz_local, Iy_local };
+};
+
+// Helper: Rotate a point around origin (0,0)
+export const rotatePoint = (p: Point, angleDeg: number): Point => {
+    const rad = (angleDeg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    return {
+        x: p.x * cos - p.y * sin,
+        y: p.x * sin + p.y * cos
+    };
+};
+
+// Helper: Rotate Custom Parts
+export const rotatePart = (part: CustomPart, angleDeg: number): CustomPart => {
+    if (angleDeg === 0) return part;
+    
+    const newPoints = part.points.map(p => rotatePoint(p, angleDeg));
+    
+    let newCurves: Record<number, { controlPoint: Point }> | undefined = undefined;
+    if (part.curves) {
+        newCurves = {};
+        for (const k in part.curves) {
+            const cp = part.curves[k].controlPoint;
+            newCurves[k] = { controlPoint: rotatePoint(cp, angleDeg) };
+        }
+    }
+    
+    let newCircleParams = undefined;
+    if (part.isCircle && part.circleParams) {
+        const { x, y, r } = part.circleParams;
+        const center = rotatePoint({x, y}, angleDeg);
+        newCircleParams = { x: center.x, y: center.y, r };
+    }
+
+    return {
+        ...part,
+        points: newPoints,
+        curves: newCurves,
+        circleParams: newCircleParams
+    };
 };
 
 // Green's Theorem for Polygons
@@ -67,6 +109,56 @@ export const calculatePolygonProperties = (points: Point[]) => {
   return { A, Cx, Cy, Ixx, Iyy, Ixy, bounds: {minX, maxX, minY, maxY} };
 };
 
+// Helper to get centroid of multiple parts
+export const calculateCentroidFromParts = (parts: CustomPart[]): { x: number, y: number } => {
+    let totalArea = 0;
+    let sumAx = 0; // Moment about Y (for Cx)
+    let sumAy = 0; // Moment about X (for Cy)
+
+    parts.forEach(part => {
+        let calcPoints: Point[] = [];
+        if (part.isCircle && part.circleParams) {
+            // Circle centroid is just center
+            const { x, y, r } = part.circleParams;
+            const A = Math.PI * r * r;
+            const sign = part.type === 'solid' ? 1 : -1;
+            totalArea += sign * A;
+            sumAx += sign * A * x;
+            sumAy += sign * A * y;
+            return;
+        }
+
+        // Polygon
+        calcPoints = part.points; // Approximation: ignore curves for centroid pivot calc speed
+        // If accurate curves needed, would need discretizeArc here, 
+        // but for pivot point, straight segments are usually close enough unless massive arcs.
+        // Let's use discretizeArc to be safe if curves exist
+        if (part.curves && Object.keys(part.curves).length > 0) {
+            calcPoints = [];
+            const pts = part.points;
+             for (let i = 0; i < pts.length; i++) {
+                  const p1 = pts[i];
+                  const p2 = pts[(i + 1) % pts.length];
+                  if (part.curves && part.curves[i]) {
+                      const control = part.curves[i].controlPoint;
+                      calcPoints.push(...discretizeArc(p1, control, p2, 10));
+                  } else {
+                      calcPoints.push(p1);
+                  }
+             }
+        }
+
+        const props = calculatePolygonProperties(calcPoints);
+        const sign = part.type === 'solid' ? 1 : -1;
+        totalArea += sign * props.A;
+        sumAx += sign * props.A * props.Cx;
+        sumAy += sign * props.A * props.Cy;
+    });
+
+    if (totalArea === 0) return { x: 0, y: 0 };
+    return { x: sumAx / totalArea, y: sumAy / totalArea };
+};
+
 
 // --- GEOMETRY HELPERS ---
 
@@ -120,6 +212,27 @@ export const discretizeArc = (p1: Point, p2: Point, p3: Point, segments: number 
     }
     // Note: The caller usually adds the final point (p3) or it's the start of next segment
     return points;
+};
+
+export const findClosestPointOnSegment = (
+    p1: Point, 
+    p2: Point, 
+    cursor: Point
+): { projX: number, projY: number, dist: number } => {
+    const atob = { x: p2.x - p1.x, y: p2.y - p1.y };
+    const atop = { x: cursor.x - p1.x, y: cursor.y - p1.y };
+    const len2 = atob.x * atob.x + atob.y * atob.y;
+    let tVal = 0;
+    if (len2 !== 0) {
+        tVal = (atop.x * atob.x + atop.y * atob.y) / len2;
+    }
+    tVal = Math.max(0, Math.min(1, tVal));
+    
+    const projX = p1.x + tVal * atob.x;
+    const projY = p1.y + tVal * atob.y;
+    const dist = Math.sqrt((cursor.x - projX)**2 + (cursor.y - projY)**2);
+
+    return { projX, projY, dist };
 };
 
 // --- D3 DRAWING UTILS ---
