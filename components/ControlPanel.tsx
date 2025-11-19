@@ -21,6 +21,8 @@ interface ControlPanelProps {
   setSelectedPartIds: (ids: string[]) => void;
   selectedCurveIndex: number | null;
   setSelectedCurveIndex: (index: number | null) => void;
+  selectedSegment: { partId: string, segmentIndex: number } | null;
+  setSelectedSegment: (seg: { partId: string, segmentIndex: number } | null) => void;
   onRotate: (dir: 'cw' | 'ccw') => void;
   onMirror: (axis: 'horizontal' | 'vertical') => void;
   rotation: number;
@@ -67,6 +69,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   setSelectedPartIds,
   selectedCurveIndex,
   setSelectedCurveIndex,
+  selectedSegment,
+  setSelectedSegment,
   onRotate,
   onMirror,
   rotation,
@@ -92,12 +96,52 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     if (selectedPartIds.length > 0 && onCustomPartsChange) {
         onCustomPartsChange(customParts.filter(p => !selectedPartIds.includes(p.id)));
         setSelectedPartIds([]);
+        setSelectedSegment(null);
     }
   }
   
   // Determine single part ID for specific editing
   const isSingleSelection = selectedPartIds.length === 1;
   const singlePartId = isSingleSelection ? selectedPartIds[0] : null;
+
+  // --- SEGMENT LENGTH MODIFICATION ---
+  const getSelectedSegmentLength = () => {
+      if (!selectedSegment || !onCustomPartsChange) return undefined;
+      const part = customParts.find(p => p.id === selectedSegment.partId);
+      if (!part) return undefined;
+      
+      const p1 = part.points[selectedSegment.segmentIndex];
+      const p2 = part.points[(selectedSegment.segmentIndex + 1) % part.points.length];
+      
+      return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+  };
+
+  const handleSegmentLengthChange = (newLen: number) => {
+      if (!selectedSegment || !onCustomPartsChange) return;
+      const part = customParts.find(p => p.id === selectedSegment.partId);
+      if (!part) return;
+      
+      const idx = selectedSegment.segmentIndex;
+      const p1 = part.points[idx];
+      const p2 = part.points[(idx + 1) % part.points.length];
+      
+      const currentLen = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+      if (currentLen === 0) return;
+      
+      const vec = { x: p2.x - p1.x, y: p2.y - p1.y };
+      const unit = { x: vec.x / currentLen, y: vec.y / currentLen };
+      
+      // New P2
+      const newP2 = {
+          x: p1.x + unit.x * newLen,
+          y: p1.y + unit.y * newLen
+      };
+      
+      const newPoints = [...part.points];
+      newPoints[(idx + 1) % part.points.length] = newP2;
+      
+      onCustomPartsChange(customParts.map(p => p.id === part.id ? { ...p, points: newPoints } : p));
+  };
 
   // Handle Radius Change for Curved Segments
   const getSelectedCurveRadius = () => {
@@ -159,7 +203,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     <div className="space-y-4">
         <div className="text-xs text-gray-400 bg-slate-800 p-2 rounded border border-slate-700">
             {drawMode === 'select' 
-                ? selectedPartIds.length > 0 ? `${selectedPartIds.length} shape(s) selected. Drag to move.` : "Click shapes to select. Shift+Click to multi-select."
+                ? selectedPartIds.length > 0 ? `${selectedPartIds.length} shape(s) selected. Click edges to edit length.` : "Click shapes to select. Shift+Click to multi-select."
                 : drawMode === 'add_node'
                     ? "Click on a line segment to add a new vertex."
                 : drawMode === 'bend'
@@ -232,7 +276,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
         {drawMode === 'select' && selectedPartIds.length > 0 && (
           <div className="bg-slate-800 p-2 rounded border border-slate-700 animate-in fade-in">
-             <label className="block text-xs font-bold text-gray-300 mb-2">Transform Selected ({selectedPartIds.length})</label>
+             <label className="block text-xs font-bold text-gray-300 mb-2">Transform Selected</label>
              <div className="grid grid-cols-4 gap-2 mb-2">
                  <button onClick={() => onRotate('ccw')} title="Rotate -90°" className="p-1 bg-slate-700 rounded hover:bg-slate-600 flex justify-center text-white"><RotateCcw size={16} /></button>
                  <button onClick={() => onRotate('cw')} title="Rotate +90°" className="p-1 bg-slate-700 rounded hover:bg-slate-600 flex justify-center text-white"><RotateCw size={16} /></button>
@@ -240,6 +284,25 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                  <button onClick={() => onMirror('vertical')} title="Flip Vertical" className="p-1 bg-slate-700 rounded hover:bg-slate-600 flex justify-center text-white"><FlipVertical size={16} /></button>
              </div>
              
+             {/* SEGMENT PROPERTY EDITOR */}
+             {selectedSegment && isSingleSelection && (
+                <div className="mb-2 border-t border-slate-600 pt-2">
+                     <label className="block text-xs font-bold text-orange-400 mb-1">Segment Length</label>
+                     <div className="flex rounded-md shadow-sm">
+                      <input
+                        type="number"
+                        value={Math.round((getSelectedSegmentLength() || 0) * 100)/100}
+                        onChange={(e) => handleSegmentLengthChange(parseFloat(e.target.value))}
+                        className="flex-1 block w-full rounded-l-md border-gray-600 bg-white text-gray-900 border p-1.5 text-xs focus:ring-orange-500 focus:border-orange-500"
+                      />
+                      <span className="inline-flex items-center px-2 rounded-r-md border border-l-0 border-gray-600 bg-slate-700 text-gray-300 text-xs">
+                        mm
+                      </span>
+                    </div>
+                </div>
+             )}
+
+             {/* CURVE RADIUS EDITOR */}
              {selectedCurveIndex !== null && isSingleSelection && (
                  <div className="mb-2 border-t border-slate-600 pt-2">
                      <label className="block text-xs font-bold text-purple-300 mb-1">Curve Radius</label>
@@ -311,6 +374,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                             setSelectedPartIds([part.id]);
                         }
                         setSelectedCurveIndex(null);
+                        setSelectedSegment(null);
                       }}
                       className={`flex justify-between items-center text-xs p-2 rounded border cursor-pointer transition-colors ${
                         isSelected ? 'bg-blue-900/50 border-blue-500' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'

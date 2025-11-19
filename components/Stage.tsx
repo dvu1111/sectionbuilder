@@ -20,6 +20,8 @@ interface StageProps {
   setSelectedPartIds: (ids: string[]) => void;
   selectedCurveIndex: number | null;
   setSelectedCurveIndex: (index: number | null) => void;
+  selectedSegment: { partId: string, segmentIndex: number } | null;
+  setSelectedSegment: (seg: { partId: string, segmentIndex: number } | null) => void;
   rotation?: number;
 }
 
@@ -35,6 +37,8 @@ export const Stage: React.FC<StageProps> = ({
   setSelectedPartIds,
   selectedCurveIndex,
   setSelectedCurveIndex,
+  selectedSegment,
+  setSelectedSegment,
   rotation = 0
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -48,12 +52,14 @@ export const Stage: React.FC<StageProps> = ({
   const [mousePos, setMousePos] = useState<Point | null>(null);
   const [previewNode, setPreviewNode] = useState<{x: number, y: number, insertIndex: number, partId: string} | null>(null);
   const [previewBend, setPreviewBend] = useState<{partId: string, segmentIndex: number} | null>(null);
+  const [hoveredSegment, setHoveredSegment] = useState<{partId: string, segmentIndex: number} | null>(null);
 
   useEffect(() => {
     setCurrentPoints([]);
     setCircleStart(null);
     setPreviewNode(null);
     setPreviewBend(null);
+    setHoveredSegment(null);
   }, [drawMode, shapeType]);
 
   // 1. INITIALIZATION EFFECT
@@ -91,6 +97,7 @@ export const Stage: React.FC<StageProps> = ({
         setCircleStart(null);
         setSelectedPartIds([]);
         setSelectedCurveIndex(null);
+        setSelectedSegment(null);
         setPreviewNode(null);
       }
       // Select All
@@ -103,7 +110,7 @@ export const Stage: React.FC<StageProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setSelectedPartIds, setSelectedCurveIndex, customParts, shapeType]);
+  }, [setSelectedPartIds, setSelectedCurveIndex, setSelectedSegment, customParts, shapeType]);
 
   // 4. RENDERING EFFECT
   useEffect(() => {
@@ -159,7 +166,10 @@ export const Stage: React.FC<StageProps> = ({
             onCustomPartsChange,
             setSelectedPartIds,
             setSelectedCurveIndex,
-            selectedCurveIndex
+            selectedCurveIndex,
+            selectedSegment,
+            setSelectedSegment,
+            hoveredSegment
         });
 
         renderPreviews({
@@ -192,7 +202,7 @@ export const Stage: React.FC<StageProps> = ({
         });
     }
 
-  }, [dimensions, shapeType, customParts, currentPoints, mousePos, circleStart, drawMode, selectedPartIds, previewNode, previewBend, selectedCurveIndex, rotation]);
+  }, [dimensions, shapeType, customParts, currentPoints, mousePos, circleStart, drawMode, selectedPartIds, previewNode, previewBend, selectedCurveIndex, selectedSegment, hoveredSegment, rotation]);
 
   // --- INTERACTION HANDLERS ---
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -213,11 +223,12 @@ export const Stage: React.FC<StageProps> = ({
 
     setMousePos({ x: snappedX, y: snappedY });
 
-    if (drawMode === 'add_node' || drawMode === 'bend') {
+    if (drawMode === 'add_node' || drawMode === 'bend' || drawMode === 'select') {
         let bestNode = null;
         let bestSegment = null;
         let closestDist = Infinity;
         
+        // Check for segments
         customParts.forEach(part => {
             if (part.isCircle) return;
 
@@ -228,7 +239,8 @@ export const Stage: React.FC<StageProps> = ({
                 
                 const { projX, projY, dist } = findClosestPointOnSegment(p1, p2, cursor);
                 
-                if (dist < 15 && dist < closestDist) {
+                // Hit threshold
+                if (dist < 10 && dist < closestDist) {
                     closestDist = dist;
                     if (drawMode === 'add_node') {
                          bestNode = {
@@ -246,16 +258,49 @@ export const Stage: React.FC<StageProps> = ({
                 }
             }
         });
-        setPreviewNode(bestNode);
-        setPreviewBend(bestSegment);
+
+        if (drawMode === 'add_node') {
+            setPreviewNode(bestNode);
+            setPreviewBend(null);
+            setHoveredSegment(null);
+        } else if (drawMode === 'bend') {
+            setPreviewNode(null);
+            setPreviewBend(bestSegment);
+            setHoveredSegment(null);
+        } else if (drawMode === 'select') {
+            setPreviewNode(null);
+            setPreviewBend(null);
+            setHoveredSegment(bestSegment);
+        }
     } else {
         setPreviewNode(null);
         setPreviewBend(null);
+        setHoveredSegment(null);
     }
   };
 
   const handleClick = (e: React.MouseEvent) => {
     if (shapeType !== ShapeType.CUSTOM || !mousePos) return;
+
+    // Handle segment selection in Select Mode
+    if (drawMode === 'select') {
+        if (hoveredSegment) {
+             setSelectedSegment(hoveredSegment);
+             setSelectedPartIds([hoveredSegment.partId]);
+             setSelectedCurveIndex(null);
+             return;
+        } else {
+            // If we clicked whitespace (not segment, not drag-handled by D3), clear segment
+            // Note: Shape clicks are handled by D3 drag/click handlers in renderCustomShapes
+            // But if we click outside, we want to clear.
+            // Actually, since D3 drag stops propagation on start, this click might only fire on empty space.
+            // So it's safe to clear here.
+            setSelectedSegment(null);
+            setSelectedPartIds([]);
+            setSelectedCurveIndex(null);
+            return;
+        }
+    }
 
     if (drawMode === 'add_node' && previewNode && onCustomPartsChange) {
         const targetPart = customParts.find(p => p.id === previewNode.partId);
@@ -311,12 +356,6 @@ export const Stage: React.FC<StageProps> = ({
                 setDrawMode('select');
             }
         }
-        return;
-    }
-
-    if (drawMode === 'select') {
-        setSelectedPartIds([]);
-        setSelectedCurveIndex(null);
         return;
     }
 

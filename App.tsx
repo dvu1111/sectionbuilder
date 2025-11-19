@@ -20,6 +20,7 @@ const App: React.FC = () => {
   const [drawType, setDrawType] = useState<CustomPartType>('solid');
   const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
   const [selectedCurveIndex, setSelectedCurveIndex] = useState<number | null>(null);
+  const [selectedSegment, setSelectedSegment] = useState<{ partId: string, segmentIndex: number } | null>(null);
 
   // Reset dimensions when shape changes
   const handleShapeSelect = (shape: ShapeType) => {
@@ -33,6 +34,7 @@ const App: React.FC = () => {
     // Reset selection states
     setSelectedPartIds([]);
     setSelectedCurveIndex(null);
+    setSelectedSegment(null);
     if (shape !== ShapeType.CUSTOM) {
       setDrawMode('select');
     }
@@ -160,6 +162,8 @@ const App: React.FC = () => {
             setSelectedPartIds={setSelectedPartIds}
             selectedCurveIndex={selectedCurveIndex}
             setSelectedCurveIndex={setSelectedCurveIndex}
+            selectedSegment={selectedSegment}
+            setSelectedSegment={setSelectedSegment}
             rotation={rotation}
           />
           
@@ -185,6 +189,7 @@ const App: React.FC = () => {
                  setCustomParts([]);
                  setSelectedPartIds([]);
                  setSelectedCurveIndex(null);
+                 setSelectedSegment(null);
              } else {
                  setDimensions(initialDimensions(selectedShape));
                  setRotation(0);
@@ -198,6 +203,8 @@ const App: React.FC = () => {
         setSelectedPartIds={setSelectedPartIds}
         selectedCurveIndex={selectedCurveIndex}
         setSelectedCurveIndex={setSelectedCurveIndex}
+        selectedSegment={selectedSegment}
+        setSelectedSegment={setSelectedSegment}
         onRotate={handleRotate}
         onMirror={handleMirror}
         rotation={rotation}

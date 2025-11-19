@@ -85,6 +85,27 @@ export const renderPreviews = ({
                 .attr("x2", mousePos.x).attr("y2", mousePos.y)
                 .attr("stroke", "blue").attr("stroke-width", 1).attr("opacity", 0.5)
                 .attr("pointer-events", "none");
+            
+            // LIVE LENGTH LABEL
+            const dist = Math.sqrt(Math.pow(mousePos.x - lastPt.x, 2) + Math.pow(mousePos.y - lastPt.y, 2));
+            const midX = (lastPt.x + mousePos.x) / 2;
+            const midY = (lastPt.y + mousePos.y) / 2;
+            
+            const labelG = uiG.append("g").attr("transform", `translate(${midX}, ${midY - 15})`);
+            
+            labelG.append("rect")
+                .attr("x", -25).attr("y", -10)
+                .attr("width", 50).attr("height", 20)
+                .attr("rx", 4)
+                .attr("fill", "rgba(0,0,0,0.7)");
+
+            labelG.append("text")
+                .attr("x", 0).attr("y", 4)
+                .attr("text-anchor", "middle")
+                .attr("fill", "white")
+                .attr("font-size", "10px")
+                .attr("font-weight", "bold")
+                .text(`${Math.round(dist)} mm`);
         }
     }
 
@@ -108,6 +129,13 @@ export const renderPreviews = ({
             .attr("cx", circleStart.x).attr("cy", circleStart.y).attr("r", 3)
             .attr("fill", "blue")
             .attr("pointer-events", "none");
+            
+        // Radius Label
+        const midX = (circleStart.x + mousePos.x) / 2;
+        const midY = (circleStart.y + mousePos.y) / 2;
+        const labelG = uiG.append("g").attr("transform", `translate(${midX}, ${midY - 15})`);
+        labelG.append("rect").attr("x", -25).attr("y", -10).attr("width", 50).attr("height", 20).attr("rx", 4).attr("fill", "rgba(0,0,0,0.7)");
+        labelG.append("text").attr("x", 0).attr("y", 4).attr("text-anchor", "middle").attr("fill", "white").attr("font-size", "10px").attr("font-weight", "bold").text(`R${Math.round(r)}`);
     }
 
     // 4. Centroid Marker
@@ -135,30 +163,9 @@ export const renderPreviews = ({
     }
 
     if (showMarker && partsToCalc.length > 0) {
-        // Calculate absolute geometric centroid (Relative to (0,0) of the parts provided)
-        // For Standard shapes, this is the centroid of the unrotated shape in the drawing coordinate system.
-        // Since Stage rotates the group around this exact point (if rotation is active), 
-        // plotting the marker at this unrotated coordinate is actually correct because the marker
-        // will be part of the "uiG" which might NOT be rotated, but wait.
-        // Stage.tsx passes `uiG`. In standard drawing, `uiG` is NOT rotated?
-        // Let's look at Stage.tsx:
-        // if (standard) { const rotatedUIG = uiG.append("g")... strategy.draw(..., rotatedUIG) }
-        // But renderPreviews receives the ROOT `uiG`.
-        // If we draw the marker in root `uiG`, we must apply rotation manually to the coordinates if we want it to follow.
-        
         const c = calculateCentroidFromParts(partsToCalc);
-        
-        if (rotation !== 0 && shapeType !== ShapeType.CUSTOM) {
-            // If rotation is active, standard shapes pivot around their centroid.
-            // So the Visual Centroid LOCATION does not change!
-            // The shape spins around it.
-            // So we just use the unrotated centroid coordinates.
-            cx = c.x;
-            cy = c.y;
-        } else {
-            cx = c.x;
-            cy = c.y;
-        }
+        cx = c.x;
+        cy = c.y;
 
         const markerG = uiG.append("g")
             .attr("class", "centroid")

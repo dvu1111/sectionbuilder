@@ -14,6 +14,9 @@ interface RenderCustomShapesParams {
     setSelectedPartIds: (ids: string[]) => void;
     setSelectedCurveIndex: (index: number | null) => void;
     selectedCurveIndex: number | null;
+    selectedSegment: { partId: string, segmentIndex: number } | null;
+    setSelectedSegment: (seg: { partId: string, segmentIndex: number } | null) => void;
+    hoveredSegment: { partId: string, segmentIndex: number } | null;
 }
 
 export const renderCustomShapes = ({
@@ -26,7 +29,10 @@ export const renderCustomShapes = ({
     onCustomPartsChange,
     setSelectedPartIds,
     setSelectedCurveIndex,
-    selectedCurveIndex
+    selectedCurveIndex,
+    selectedSegment,
+    setSelectedSegment,
+    hoveredSegment
 }: RenderCustomShapesParams) => {
     
     const fillStyle = "#94a3b8"; 
@@ -117,6 +123,7 @@ export const renderCustomShapes = ({
                     
                     setSelectedPartIds(newSelection);
                     setSelectedCurveIndex(null);
+                    setSelectedSegment(null); // Clear segment selection on drag
 
                     // Capture initial state for ALL parts in the selection
                     dragStartMap.clear();
@@ -186,7 +193,54 @@ export const renderCustomShapes = ({
         }
     });
 
-    // 2. Render Vertex & Curve Handles (Edit Mode) - Only if SINGLE selection
+    // 2. Render Selected/Hovered Segment Overlay
+    const highlightSegment = (seg: { partId: string, segmentIndex: number }, color: string, width: number) => {
+        const part = customParts.find(p => p.id === seg.partId);
+        if (!part || part.isCircle) return;
+        
+        const p1 = part.points[seg.segmentIndex];
+        const p2 = part.points[(seg.segmentIndex + 1) % part.points.length];
+        
+        let dStr = `M ${p1.x},${p1.y}`;
+        
+        if (part.curves && part.curves[seg.segmentIndex]) {
+            const cp = part.curves[seg.segmentIndex].controlPoint;
+            const circle = getCircleFromThreePoints(p1, cp, p2);
+             if (circle) {
+                const startAngle = Math.atan2(p1.y - circle.y, p1.x - circle.x);
+                const midAngle = Math.atan2(cp.y - circle.y, cp.x - circle.x);
+                const endAngle = Math.atan2(p2.y - circle.y, p2.x - circle.x);
+                let d1 = midAngle - startAngle;
+                while (d1 <= -Math.PI) d1 += 2*Math.PI;
+                while (d1 > Math.PI) d1 -= 2*Math.PI;
+                let d2 = endAngle - midAngle;
+                while (d2 <= -Math.PI) d2 += 2*Math.PI;
+                while (d2 > Math.PI) d2 -= 2*Math.PI;
+                const totalSweep = d1 + d2;
+                const sweepFlag = totalSweep >= 0 ? 1 : 0;
+                const largeArcFlag = Math.abs(totalSweep) > Math.PI ? 1 : 0;
+                dStr += ` A ${circle.r} ${circle.r} 0 ${largeArcFlag} ${sweepFlag} ${p2.x},${p2.y}`;
+             } else {
+                dStr += ` L ${p2.x},${p2.y}`;
+             }
+        } else {
+            dStr += ` L ${p2.x},${p2.y}`;
+        }
+        
+        uiG.append("path")
+            .attr("d", dStr)
+            .attr("fill", "none")
+            .attr("stroke", color)
+            .attr("stroke-width", width)
+            .attr("pointer-events", "none");
+    };
+
+    if (drawMode === 'select') {
+        if (hoveredSegment) highlightSegment(hoveredSegment, "#60a5fa", 3); // Light blue on hover
+        if (selectedSegment) highlightSegment(selectedSegment, "#f97316", 3); // Orange on selection
+    }
+
+    // 3. Render Vertex & Curve Handles (Edit Mode) - Only if SINGLE selection
     const isSingleSelection = selectedPartIds.length === 1;
     const primaryPartId = isSingleSelection ? selectedPartIds[0] : null;
 
