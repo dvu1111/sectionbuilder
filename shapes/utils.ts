@@ -181,7 +181,8 @@ export const calculateNumericProperties = (parts: { points: Point[], type: 'soli
     }
 
     // 2. Numerical Integration (Scanline Algorithm)
-    const STEPS = 1000;
+    // Increased precision for "Pro" quality results
+    const STEPS = 2000;
     const dy = (maxY - minY) / STEPS;
     
     // Initialize Integrals
@@ -221,6 +222,11 @@ export const calculateNumericProperties = (parts: { points: Point[], type: 'soli
         }
     }
 
+    // Prevent division by zero if area is negligible
+    if (Area <= 1e-9) {
+         return { area: 0, Cx: 0, Cy: 0, Ixx: 0, Iyy: 0, Ixy: 0, bounds: { minX, maxX, minY, maxY } };
+    }
+
     const Cx = Area > 0 ? Sx / Area : 0;
     const Cy = Area > 0 ? Sy / Area : 0;
 
@@ -237,7 +243,7 @@ export const calculateNumericProperties = (parts: { points: Point[], type: 'soli
 
 // Updated Plastic Modulus Calculation using the new robust range logic
 export const calculatePlasticModulus = (parts: { points: Point[], type: 'solid'|'hole' }[], bounds: {minX:number, maxX:number, minY:number, maxY:number}) => {
-    const STEPS = 500; 
+    const STEPS = 2000; // Increased precision
     let Zz = 0;
     let Zy = 0;
 
@@ -319,7 +325,7 @@ export const calculateCentroidFromParts = (parts: CustomPart[]): { x: number, y:
     parts.forEach(part => {
         let calcPoints: Point[] = [];
         if (part.isCircle && part.circleParams) {
-            const segments = 32;
+            const segments = 128; // Increased segments
             const { x, y, r } = part.circleParams;
             for (let i = 0; i < segments; i++) {
               const theta = (i / segments) * 2 * Math.PI;
@@ -333,7 +339,7 @@ export const calculateCentroidFromParts = (parts: CustomPart[]): { x: number, y:
                   const p2 = pts[(i + 1) % pts.length];
                   if (part.curves && part.curves[i]) {
                       const control = part.curves[i].controlPoint;
-                      calcPoints.push(...discretizeArc(p1, control, p2, 8));
+                      calcPoints.push(...discretizeArc(p1, control, p2, 32)); // Increased from 8
                   } else {
                       calcPoints.push(p1);
                   }

@@ -1,8 +1,8 @@
 # SectionBuilder
 
-***This has been vibe coded - double check your work. This may have errors.***
+***Disclaimer: This has been vibe coded - double check your work. This may have errors.***
 
-**SectionBuilder** is an amateur-grade, browser-based structural analysis tool designed for civil and mechanical engineers. It calculates geometric properties for standard structural shapes and arbitrary custom polygons in real-time.
+**SectionBuilder** is a amateur-grade, browser-based structural analysis tool designed for civil and mechanical engineers. It calculates geometric properties for standard structural shapes and arbitrary custom polygons in real-time.
 
 Built with **React**, **TypeScript**, and **D3.js**, it offers a CAD-like experience for defining cross-sections with support for complex geometries, curved segments, and voids (holes).
 

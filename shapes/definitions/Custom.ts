@@ -18,7 +18,7 @@ export const CustomStrategy: ShapeStrategy = {
       let calcPoints: Point[] = [];
       
       if (part.isCircle && part.circleParams) {
-        const segments = 64;
+        const segments = 128; // Increased from 64 for precision
         const { x, y, r } = part.circleParams;
         for (let i = 0; i < segments; i++) {
           const theta = (i / segments) * 2 * Math.PI;
@@ -37,7 +37,7 @@ export const CustomStrategy: ShapeStrategy = {
               if (part.curves && part.curves[i]) {
                   const control = part.curves[i].controlPoint;
                   // Discretize arc
-                  const arcPoints = discretizeArc(p1, control, p2, 16); // Increased segments for better accuracy
+                  const arcPoints = discretizeArc(p1, control, p2, 32); // Increased segments from 16 to 32
                   calcPoints.push(...arcPoints);
               } else {
                   calcPoints.push(p1);
@@ -63,6 +63,7 @@ export const CustomStrategy: ShapeStrategy = {
     const Izy_raw = props.Ixy - totalArea * Cx_abs * Cy_abs;
 
     // Invert Izy to match Structural Engineering convention (Y-up) vs SVG (Y-down)
+    // In SVG (y-down), Ixy has opposite sign to Cartesian (y-up)
     const Izy = -Izy_raw;
 
     const rz = totalArea > 0 ? Math.sqrt(Math.abs(Iz) / totalArea) : 0;
@@ -79,7 +80,7 @@ export const CustomStrategy: ShapeStrategy = {
     // Centroid Z (Distance from Left Fiber)
     const Cz_struct = hasSolid ? (Cx_abs - minX) : 0;
 
-    // Section Moduli
+    // Section Modulus
     const y_top_dist = Math.abs(Cy_abs - minY);
     const y_bot_dist = Math.abs(maxY - Cy_abs);
     const z_right_dist = Math.abs(maxX - Cx_abs);

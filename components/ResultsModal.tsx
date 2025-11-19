@@ -54,31 +54,36 @@ export const ResultsModal: React.FC<ResultsModalProps> = ({ isOpen, onClose, dat
           <div className="bg-slate-800/50 rounded-lg p-2 border border-slate-700">
             <SectionHeader title="Geometric Properties" />
             <Row label="Area (A)" value={properties.area} unit="mm²" />
-            <Row label="Centroid (Cy)" value={properties.centroid.y} unit="mm" />
-            <Row label="Centroid (Cz)" value={properties.centroid.z} unit="mm" />
+            <Row label="Centroid (Cy)" value={properties.centroid.y} unit="mm" info="Distance from the bottom-most fiber of the shape to the Neutral Axis." />
+            <Row label="Centroid (Cz)" value={properties.centroid.z} unit="mm" info="Distance from the left-most fiber of the shape to the Neutral Axis." />
           
             <SectionHeader title="Moment of Inertia" />
-            <Row label="Iz" value={properties.momentInertia.Iz} unit="mm⁴" info="About horizontal centroidal axis" />
+            <Row label="Iz" value={properties.momentInertia.Iz} unit="mm⁴" info="About horizontal centroidal axis (Strong axis for upright shapes)" />
             <Row label="Iy" value={properties.momentInertia.Iy} unit="mm⁴" info="About vertical centroidal axis" />
             <Row label="Izy" value={properties.momentInertia.Izy} unit="mm⁴" info="Product of inertia" />
 
             <SectionHeader title="Principal Properties" />
             <Row label="I₁ (Max)" value={properties.principalMoments.I1} unit="mm⁴" />
             <Row label="I₂ (Min)" value={properties.principalMoments.I2} unit="mm⁴" />
-            <Row label="Angle (α)" value={properties.principalMoments.angle} unit="deg" info="Angle from Z-axis to I₁ axis" />
+            <Row label="Angle (α)" value={properties.principalMoments.angle} unit="deg" info="Angle of I₁ axis relative to horizontal (CCW positive)" />
             
             <SectionHeader title="Elastic Section Moduli" />
             <Row label="Szt (Top)" value={properties.sectionModulus.Szt} unit="mm³" />
             <Row label="Szb (Bot)" value={properties.sectionModulus.Szb} unit="mm³" />
             <Row label="Syt (Right)" value={properties.sectionModulus.Syt} unit="mm³" />
+            <Row label="Syb (Left)" value={properties.sectionModulus.Syt} unit="mm³" />
             
             <SectionHeader title="Plastic Section Moduli" />
-            <Row label="Zz" value={properties.plasticModulus.Zz} unit="mm³" />
-            <Row label="Zy" value={properties.plasticModulus.Zy} unit="mm³" />
+            <Row label="Zz" value={properties.plasticModulus.Zz} unit="mm³" info="About horizontal Plastic Neutral Axis" />
+            <Row label="Zy" value={properties.plasticModulus.Zy} unit="mm³" info="About vertical Plastic Neutral Axis" />
 
             <SectionHeader title="Radius of Gyration" />
             <Row label="rz" value={properties.radiusGyration.rz} unit="mm" />
             <Row label="ry" value={properties.radiusGyration.ry} unit="mm" />
+          </div>
+          
+          <div className="mt-4 text-[10px] text-gray-500 px-2">
+             <strong>Note:</strong> Results assume the origin is at the bottom-left corner of the shape's bounding box for Centroid calculations. Moments are centroidal.
           </div>
         </div>
       </div>
