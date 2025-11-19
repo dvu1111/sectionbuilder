@@ -1,3 +1,4 @@
+
 import * as d3 from 'd3';
 import { CustomPart, Point, DragStartData } from '../../types';
 import { getCircleFromThreePoints } from '../../shapes/utils';
@@ -123,7 +124,8 @@ export const renderCustomShapes = ({
                     partsToMove.forEach(p => {
                          dragStartMap.set(p.id, {
                              points: p.isCircle ? undefined : p.points.map(pt => ({...pt})),
-                             circleParams: p.isCircle ? {...p.circleParams} : undefined,
+                             // Safely copy circleParams only if they exist to avoid spread on undefined
+                             circleParams: (p.isCircle && p.circleParams) ? {...p.circleParams} : undefined,
                              curves: p.curves ? JSON.parse(JSON.stringify(p.curves)) : undefined
                          });
                     });
@@ -144,9 +146,10 @@ export const renderCustomShapes = ({
                              return { 
                                  ...p, 
                                  circleParams: { 
-                                     ...initial.circleParams, 
+                                     // Explicit assignment to satisfy Typescript strict types
                                      x: initial.circleParams.x + dx, 
-                                     y: initial.circleParams.y + dy 
+                                     y: initial.circleParams.y + dy,
+                                     r: initial.circleParams.r
                                  } 
                              };
                          } else if (initial.points) {
@@ -156,15 +159,20 @@ export const renderCustomShapes = ({
                              }));
                              
                              const newCurves: Record<number, any> = {};
-                             if (initial.curves) {
-                                 Object.keys(initial.curves).forEach(k => {
+                             // Capture in local const to ensure TS knows it is defined inside loop
+                             const initialCurves = initial.curves;
+                             if (initialCurves) {
+                                 Object.keys(initialCurves).forEach(k => {
                                      const idx = parseInt(k);
-                                     newCurves[idx] = {
-                                         controlPoint: {
-                                             x: initial.curves[idx].controlPoint.x + dx,
-                                             y: initial.curves[idx].controlPoint.y + dy
-                                         }
-                                     };
+                                     const curveInfo = initialCurves[idx];
+                                     if (curveInfo) {
+                                         newCurves[idx] = {
+                                             controlPoint: {
+                                                 x: curveInfo.controlPoint.x + dx,
+                                                 y: curveInfo.controlPoint.y + dy
+                                             }
+                                         };
+                                     }
                                  });
                              }
                              return { ...p, points: newPoints, curves: newCurves };
