@@ -129,10 +129,7 @@ export const calculateCentroidFromParts = (parts: CustomPart[]): { x: number, y:
         }
 
         // Polygon
-        calcPoints = part.points; // Approximation: ignore curves for centroid pivot calc speed
-        // If accurate curves needed, would need discretizeArc here, 
-        // but for pivot point, straight segments are usually close enough unless massive arcs.
-        // Let's use discretizeArc to be safe if curves exist
+        calcPoints = part.points; 
         if (part.curves && Object.keys(part.curves).length > 0) {
             calcPoints = [];
             const pts = part.points;
@@ -159,6 +156,150 @@ export const calculateCentroidFromParts = (parts: CustomPart[]): { x: number, y:
     return { x: sumAx / totalArea, y: sumAy / totalArea };
 };
 
+// --- ADVANCED PROPERTIES ---
+
+export const calculatePrincipalMoments = (Iz: number, Iy: number, Izy: number) => {
+    const avg = (Iz + Iy) / 2;
+    const diff = (Iz - Iy) / 2;
+    const R = Math.sqrt(diff * diff + Izy * Izy);
+    
+    const I1 = avg + R;
+    const I2 = avg - R;
+    
+    // Calculate angle of principal axis (alpha) relative to Z-axis (horizontal)
+    // tan(2alpha) = -2*Izy / (Iz - Iy)
+    // Math.atan2(y, x) -> atan2(-2*Izy, Iz - Iy)
+    let angleRad = 0.5 * Math.atan2(-2 * Izy, Iz - Iy);
+    let angleDeg = (angleRad * 180) / Math.PI;
+    
+    return { I1, I2, angle: angleDeg };
+};
+
+export const calculatePlasticModulus = (parts: { points: Point[], type: 'solid'|'hole' }[], bounds: {minX:number, maxX:number, minY:number, maxY:number}) => {
+    const STEPS = 500; // Resolution for integration
+    let Zz = 0;
+    let Zy = 0;
+
+    // 1. Calculate Zz (Bending about Horizontal Axis, scan Y, find PNA Y)
+    if (bounds.maxY > bounds.minY) {
+        const dy = (bounds.maxY - bounds.minY) / STEPS;
+        const strips: { pos: number, area: number }[] = [];
+        let totalAreaCheck = 0;
+
+        for (let i = 0; i < STEPS; i++) {
+            const y = bounds.minY + (i + 0.5) * dy;
+            let width = 0;
+            
+            for (const part of parts) {
+                const poly = part.points;
+                const intersections: number[] = [];
+                for (let j = 0; j < poly.length; j++) {
+                    const p1 = poly[j];
+                    const p2 = poly[(j + 1) % poly.length];
+                    
+                    // Check intersection with horizontal line Y = y
+                    if ((p1.y <= y && p2.y > y) || (p2.y <= y && p1.y > y)) {
+                        const x = p1.x + (y - p1.y) * (p2.x - p1.x) / (p2.y - p1.y);
+                        intersections.push(x);
+                    }
+                }
+                intersections.sort((a, b) => a - b);
+                
+                let partW = 0;
+                for (let k = 0; k < intersections.length; k += 2) {
+                    if (k + 1 < intersections.length) {
+                        partW += intersections[k+1] - intersections[k];
+                    }
+                }
+                
+                if (part.type === 'solid') width += partW;
+                else width -= partW;
+            }
+            
+            const stripArea = width * dy;
+            strips.push({ pos: y, area: stripArea });
+            totalAreaCheck += stripArea;
+        }
+
+        // Find PNA (Plastic Neutral Axis) - Axis of Equal Area
+        let currentArea = 0;
+        let pnaY = bounds.minY;
+        
+        for (const strip of strips) {
+            currentArea += strip.area;
+            if (currentArea >= totalAreaCheck / 2) {
+                pnaY = strip.pos;
+                break;
+            }
+        }
+
+        // Calculate first moment of area about PNA
+        for (const strip of strips) {
+            Zz += strip.area * Math.abs(strip.pos - pnaY);
+        }
+    }
+
+    // 2. Calculate Zy (Bending about Vertical Axis, scan X, find PNA X)
+    if (bounds.maxX > bounds.minX) {
+        const dx = (bounds.maxX - bounds.minX) / STEPS;
+        const strips: { pos: number, area: number }[] = [];
+        let totalAreaCheck = 0;
+
+        for (let i = 0; i < STEPS; i++) {
+            const x = bounds.minX + (i + 0.5) * dx;
+            let height = 0;
+            
+            for (const part of parts) {
+                const poly = part.points;
+                const intersections: number[] = [];
+                for (let j = 0; j < poly.length; j++) {
+                    const p1 = poly[j];
+                    const p2 = poly[(j + 1) % poly.length];
+                    
+                    // Check intersection with vertical line X = x
+                    if ((p1.x <= x && p2.x > x) || (p2.x <= x && p1.x > x)) {
+                        const y = p1.y + (x - p1.x) * (p2.y - p1.y) / (p2.x - p1.x);
+                        intersections.push(y);
+                    }
+                }
+                intersections.sort((a, b) => a - b);
+                
+                let partH = 0;
+                for (let k = 0; k < intersections.length; k += 2) {
+                    if (k + 1 < intersections.length) {
+                        partH += intersections[k+1] - intersections[k];
+                    }
+                }
+                
+                if (part.type === 'solid') height += partH;
+                else height -= partH;
+            }
+            
+            const stripArea = height * dx;
+            strips.push({ pos: x, area: stripArea });
+            totalAreaCheck += stripArea;
+        }
+
+        // Find PNA
+        let currentArea = 0;
+        let pnaX = bounds.minX;
+        
+        for (const strip of strips) {
+            currentArea += strip.area;
+            if (currentArea >= totalAreaCheck / 2) {
+                pnaX = strip.pos;
+                break;
+            }
+        }
+
+        for (const strip of strips) {
+            Zy += strip.area * Math.abs(strip.pos - pnaX);
+        }
+    }
+
+    return { Zz, Zy };
+}
+
 
 // --- GEOMETRY HELPERS ---
 
@@ -184,10 +325,6 @@ export const discretizeArc = (p1: Point, p2: Point, p3: Point, segments: number 
     const startAngle = Math.atan2(p1.y - circle.y, p1.x - circle.x);
     const throughAngle = Math.atan2(p2.y - circle.y, p2.x - circle.x);
     const endAngle = Math.atan2(p3.y - circle.y, p3.x - circle.x);
-
-    // Determine direction and range
-    // Normalize angles to 0-2PI for easier comparison, or use delta
-    // We want to go from start to end VIA through.
     
     let da1 = throughAngle - startAngle;
     let da2 = endAngle - throughAngle;
@@ -210,7 +347,6 @@ export const discretizeArc = (p1: Point, p2: Point, p3: Point, segments: number 
             y: circle.y + circle.r * Math.sin(theta)
         });
     }
-    // Note: The caller usually adds the final point (p3) or it's the start of next segment
     return points;
 };
 

@@ -2,7 +2,7 @@
 import * as d3 from 'd3';
 import { ShapeType } from '../../types';
 import { ShapeStrategy } from '../types';
-import { rectProps, drawDimensionLine } from '../utils';
+import { rectProps, drawDimensionLine, calculatePlasticModulus, calculatePrincipalMoments } from '../utils';
 
 export const IShapeStrategy: ShapeStrategy = {
   type: ShapeType.I_SHAPE,
@@ -86,18 +86,25 @@ export const IShapeStrategy: ShapeStrategy = {
     const cRight = zMax - cz;
     const cLeft = cz - zMin;
 
-    // Plastic Modulus Approx
+    // Plastic Modulus - Use Numerical Integration for accuracy on asymmetric sections
+    // We can use getCustomParts to generate the polygon and feed it to the solver
     let Zz = 0;
     let Zy = 0;
-    parts.forEach(p => {
-        Zz += p.area * Math.abs(p.y - cy);
-        Zy += p.area * Math.abs(p.z - cz);
-    });
+    if (IShapeStrategy.getCustomParts) {
+         const polyParts = IShapeStrategy.getCustomParts(d);
+         // Bounding box for I-shape is [-maxW/2, -h/2] to [maxW/2, h/2]
+         const maxWidth = Math.max(w_top, w_bot);
+         const bounds = { minX: -maxWidth/2, maxX: maxWidth/2, minY: -h/2, maxY: h/2 };
+         const plastic = calculatePlasticModulus(polyParts, bounds);
+         Zz = plastic.Zz;
+         Zy = plastic.Zy;
+    }
 
     return {
       area: totalArea,
       centroid: { y: cy, z: cz },
       momentInertia: { Iz, Iy, Izy: 0 },
+      principalMoments: calculatePrincipalMoments(Iz, Iy, 0),
       sectionModulus: { 
           Szt: cTop !== 0 ? Iz / cTop : 0,
           Szb: cBot !== 0 ? Iz / cBot : 0,

@@ -2,7 +2,7 @@
 import * as d3 from 'd3';
 import { ShapeType } from '../../types';
 import { ShapeStrategy } from '../types';
-import { rectProps, drawDimensionLine } from '../utils';
+import { rectProps, drawDimensionLine, calculatePlasticModulus, calculatePrincipalMoments } from '../utils';
 
 export const ChannelStrategy: ShapeStrategy = {
   type: ShapeType.CHANNEL,
@@ -55,10 +55,22 @@ export const ChannelStrategy: ShapeStrategy = {
     const zr = b - Cz;
     const zl = Cz;
 
+    // Plastic Modulus
+    let Zz = 0;
+    let Zy = 0;
+    if (ChannelStrategy.getCustomParts) {
+         const polyParts = ChannelStrategy.getCustomParts(d);
+         const bounds = { minX: -b/2, maxX: b/2, minY: -h/2, maxY: h/2 };
+         const plastic = calculatePlasticModulus(polyParts, bounds);
+         Zz = plastic.Zz;
+         Zy = plastic.Zy;
+    }
+
     return {
         area: totalArea,
         centroid: { y: Cy, z: Cz },
         momentInertia: { Iz, Iy, Izy: 0 },
+        principalMoments: calculatePrincipalMoments(Iz, Iy, 0),
         sectionModulus: {
             Szt: yt > 0 ? Iz / yt : 0,
             Szb: yb > 0 ? Iz / yb : 0,
@@ -66,7 +78,7 @@ export const ChannelStrategy: ShapeStrategy = {
             Syb: zl > 0 ? Iy / zl : 0
         },
         radiusGyration: { rz, ry },
-        plasticModulus: { Zz: 0, Zy: 0 }
+        plasticModulus: { Zz, Zy }
     };
   },
   draw: (g, uiG, d) => {

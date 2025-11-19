@@ -1,3 +1,4 @@
+
 export enum ShapeType {
   RECTANGULAR = 'Rectangular',
   HOLLOW_RECTANGULAR = 'Hollow Rectangular',
@@ -43,6 +44,7 @@ export interface GeometricProperties {
   area: number;
   centroid: { y: number; z: number }; // y is vertical, z is horizontal in this context (2D)
   momentInertia: { Iz: number; Iy: number; Izy: number };
+  principalMoments: { I1: number; I2: number; angle: number };
   sectionModulus: { Szt: number; Szb: number; Syt: number; Syb: number }; // Elastic
   radiusGyration: { rz: number; ry: number };
   plasticModulus: { Zz: number; Zy: number };

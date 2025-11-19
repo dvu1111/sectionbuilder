@@ -1,7 +1,7 @@
 
 import { ShapeType, CustomPart, Point } from '../../types';
 import { ShapeStrategy } from '../types';
-import { calculatePolygonProperties, discretizeArc } from '../utils';
+import { calculatePolygonProperties, discretizeArc, calculatePlasticModulus, calculatePrincipalMoments } from '../utils';
 
 export const CustomStrategy: ShapeStrategy = {
   type: ShapeType.CUSTOM,
@@ -95,20 +95,13 @@ export const CustomStrategy: ShapeStrategy = {
     const ry = totalArea > 0 ? Math.sqrt(Math.abs(Iy) / totalArea) : 0;
 
     // Calculate Bounding Box distances from Centroid
-    // SVG Coords: Y increases downwards.
-    // Top visual fiber = globalMinY. Bottom visual fiber = globalMaxY.
-    // Left visual fiber = globalMinX. Right visual fiber = globalMaxX.
-    
     // Centroid Y (Distance from Bottom Fiber)
-    // C_y_struct = Bottom_Y_svg - Centroid_Y_svg
     const Cy_struct = (hasSolid && globalMaxY !== -Infinity) ? (globalMaxY - Cy_abs) : 0;
     
     // Centroid Z (Distance from Left Fiber)
-    // C_z_struct = Centroid_X_svg - Left_X_svg
     const Cz_struct = (hasSolid && globalMinX !== Infinity) ? (Cx_abs - globalMinX) : 0;
 
     // Section Moduli
-    // Szt (Top) = Iz / y_top. y_top is distance from centroid to top fiber.
     const y_top_dist = Math.abs(Cy_abs - globalMinY);
     const y_bot_dist = Math.abs(globalMaxY - Cy_abs);
     const z_right_dist = Math.abs(globalMaxX - Cx_abs);
@@ -124,10 +117,14 @@ export const CustomStrategy: ShapeStrategy = {
         Zy = plasticProps.Zy;
     }
 
+    // Principal Properties
+    const principal = calculatePrincipalMoments(Iz, Iy, Izy);
+
     return {
       area: totalArea,
       centroid: { y: Cy_struct, z: Cz_struct }, // Reporting relative to bounds
       momentInertia: { Iz, Iy, Izy },
+      principalMoments: principal,
       sectionModulus: {
           Szt: y_top_dist > 0 ? Iz / y_top_dist : 0,
           Szb: y_bot_dist > 0 ? Iz / y_bot_dist : 0,
@@ -138,130 +135,4 @@ export const CustomStrategy: ShapeStrategy = {
       plasticModulus: { Zz, Zy } 
     };
   },
-  // Draw logic for Custom is handled interactively in Stage.tsx
 };
-
-function calculatePlasticModulus(parts: { points: Point[], type: 'solid'|'hole' }[], bounds: {minX:number, maxX:number, minY:number, maxY:number}) {
-    const STEPS = 500; // Resolution for integration
-    let Zz = 0;
-    let Zy = 0;
-
-    // 1. Calculate Zz (Bending about Horizontal Axis, scan Y, find PNA Y)
-    if (bounds.maxY > bounds.minY) {
-        const dy = (bounds.maxY - bounds.minY) / STEPS;
-        const strips: { pos: number, area: number }[] = [];
-        let totalAreaCheck = 0;
-
-        for (let i = 0; i < STEPS; i++) {
-            const y = bounds.minY + (i + 0.5) * dy;
-            let width = 0;
-            
-            for (const part of parts) {
-                const poly = part.points;
-                const intersections: number[] = [];
-                for (let j = 0; j < poly.length; j++) {
-                    const p1 = poly[j];
-                    const p2 = poly[(j + 1) % poly.length];
-                    
-                    // Check intersection with horizontal line Y = y
-                    if ((p1.y <= y && p2.y > y) || (p2.y <= y && p1.y > y)) {
-                        const x = p1.x + (y - p1.y) * (p2.x - p1.x) / (p2.y - p1.y);
-                        intersections.push(x);
-                    }
-                }
-                intersections.sort((a, b) => a - b);
-                
-                let partW = 0;
-                for (let k = 0; k < intersections.length; k += 2) {
-                    if (k + 1 < intersections.length) {
-                        partW += intersections[k+1] - intersections[k];
-                    }
-                }
-                
-                if (part.type === 'solid') width += partW;
-                else width -= partW;
-            }
-            
-            const stripArea = width * dy;
-            strips.push({ pos: y, area: stripArea });
-            totalAreaCheck += stripArea;
-        }
-
-        // Find PNA
-        let currentArea = 0;
-        let pnaY = bounds.minY;
-        
-        for (const strip of strips) {
-            currentArea += strip.area;
-            if (currentArea >= totalAreaCheck / 2) {
-                pnaY = strip.pos;
-                break;
-            }
-        }
-
-        // Calculate first moment of area about PNA
-        for (const strip of strips) {
-            Zz += strip.area * Math.abs(strip.pos - pnaY);
-        }
-    }
-
-    // 2. Calculate Zy (Bending about Vertical Axis, scan X, find PNA X)
-    if (bounds.maxX > bounds.minX) {
-        const dx = (bounds.maxX - bounds.minX) / STEPS;
-        const strips: { pos: number, area: number }[] = [];
-        let totalAreaCheck = 0;
-
-        for (let i = 0; i < STEPS; i++) {
-            const x = bounds.minX + (i + 0.5) * dx;
-            let height = 0;
-            
-            for (const part of parts) {
-                const poly = part.points;
-                const intersections: number[] = [];
-                for (let j = 0; j < poly.length; j++) {
-                    const p1 = poly[j];
-                    const p2 = poly[(j + 1) % poly.length];
-                    
-                    // Check intersection with vertical line X = x
-                    if ((p1.x <= x && p2.x > x) || (p2.x <= x && p1.x > x)) {
-                        const y = p1.y + (x - p1.x) * (p2.y - p1.y) / (p2.x - p1.x);
-                        intersections.push(y);
-                    }
-                }
-                intersections.sort((a, b) => a - b);
-                
-                let partH = 0;
-                for (let k = 0; k < intersections.length; k += 2) {
-                    if (k + 1 < intersections.length) {
-                        partH += intersections[k+1] - intersections[k];
-                    }
-                }
-                
-                if (part.type === 'solid') height += partH;
-                else height -= partH;
-            }
-            
-            const stripArea = height * dx;
-            strips.push({ pos: x, area: stripArea });
-            totalAreaCheck += stripArea;
-        }
-
-        // Find PNA
-        let currentArea = 0;
-        let pnaX = bounds.minX;
-        
-        for (const strip of strips) {
-            currentArea += strip.area;
-            if (currentArea >= totalAreaCheck / 2) {
-                pnaX = strip.pos;
-                break;
-            }
-        }
-
-        for (const strip of strips) {
-            Zy += strip.area * Math.abs(strip.pos - pnaX);
-        }
-    }
-
-    return { Zz, Zy };
-}

@@ -2,7 +2,7 @@
 import * as d3 from 'd3';
 import { ShapeType } from '../../types';
 import { ShapeStrategy } from '../types';
-import { rectProps, drawDimensionLine } from '../utils';
+import { rectProps, drawDimensionLine, calculatePlasticModulus, calculatePrincipalMoments } from '../utils';
 
 export const AngleStrategy: ShapeStrategy = {
   type: ShapeType.ANGLE,
@@ -61,16 +61,28 @@ export const AngleStrategy: ShapeStrategy = {
     const rz = totalArea > 0 ? Math.sqrt(Iz / totalArea) : 0;
     const ry = totalArea > 0 ? Math.sqrt(Iy / totalArea) : 0;
 
-    // Section Moduli (Elastic)
+    // Section Modulus (Elastic)
     const y_top = h - Cy;
     const y_bot = Cy;
     const z_right = b - Cz;
     const z_left = Cz;
 
+    // Plastic Modulus
+    let Zz = 0;
+    let Zy = 0;
+    if (AngleStrategy.getCustomParts) {
+         const polyParts = AngleStrategy.getCustomParts(d);
+         const bounds = { minX: -b/2, maxX: b/2, minY: -h/2, maxY: h/2 };
+         const plastic = calculatePlasticModulus(polyParts, bounds);
+         Zz = plastic.Zz;
+         Zy = plastic.Zy;
+    }
+
     return {
         area: totalArea,
         centroid: { y: Cy, z: Cz },
         momentInertia: { Iz, Iy, Izy },
+        principalMoments: calculatePrincipalMoments(Iz, Iy, Izy),
         sectionModulus: {
             Szt: y_top > 0 ? Iz / y_top : 0,
             Szb: y_bot > 0 ? Iz / y_bot : 0,
@@ -78,21 +90,13 @@ export const AngleStrategy: ShapeStrategy = {
             Syb: z_left > 0 ? Iy / z_left : 0
         },
         radiusGyration: { rz, ry },
-        plasticModulus: { Zz: 0, Zy: 0 } // Not implemented analytically for L-shape here
+        plasticModulus: { Zz, Zy }
     };
   },
   draw: (g, uiG, d) => {
     const h = d.depth;
     const b = d.width;
     const t = d.thickness || 10;
-    
-    // Draw centered on screen, but shape itself is asymmetric.
-    // Bounding Box is b wide, h high.
-    // Let's center the bounding box at (0,0).
-    // Top-Left of bbox: -b/2, -h/2
-    
-    const x0 = -b/2;
-    const y0 = h/2; 
     
     const path = d3.path();
     path.moveTo(-b/2, h/2);             // Bottom-Left (Heel)

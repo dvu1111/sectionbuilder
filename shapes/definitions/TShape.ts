@@ -2,7 +2,7 @@
 import * as d3 from 'd3';
 import { ShapeType } from '../../types';
 import { ShapeStrategy } from '../types';
-import { rectProps, drawDimensionLine } from '../utils';
+import { rectProps, drawDimensionLine, calculatePlasticModulus, calculatePrincipalMoments } from '../utils';
 
 export const TShapeStrategy: ShapeStrategy = {
   type: ShapeType.T_SHAPE,
@@ -33,15 +33,10 @@ export const TShapeStrategy: ShapeStrategy = {
     const totalArea = web.area + flange.area;
     const Cy = totalArea > 0 ? (web.area * web.y + flange.area * flange.y) / totalArea : 0;
     // Cz is 0 (Symmetric)
-    // But standard calculation interface expects origin at bottom-left usually if used generically,
-    // but here we used 0 as center for Z. 
-    // Let's shift result to match bounding box origin (Bottom-Left) so Stage can render centroid marker correctly.
-    // Bounding box Left is -b/2.
-    // So Cz relative to Left is b/2.
     
     const Cz_local = 0; 
     
-    // Convert to Bottom-Left Origin for return
+    // Convert to Bottom-Left Origin for return to UI (Standard structural convention often puts origin at BL)
     const Cy_BL = Cy;
     const Cz_BL = Cz_local + b/2;
 
@@ -61,10 +56,22 @@ export const TShapeStrategy: ShapeStrategy = {
     const yb = Cy;
     const xr = b/2;
 
+    // Plastic Modulus
+    let Zz = 0;
+    let Zy = 0;
+    if (TShapeStrategy.getCustomParts) {
+         const polyParts = TShapeStrategy.getCustomParts(d);
+         const bounds = { minX: -b/2, maxX: b/2, minY: -h/2, maxY: h/2 };
+         const plastic = calculatePlasticModulus(polyParts, bounds);
+         Zz = plastic.Zz;
+         Zy = plastic.Zy;
+    }
+
     return {
         area: totalArea,
         centroid: { y: Cy_BL, z: Cz_BL },
         momentInertia: { Iz, Iy, Izy: 0 },
+        principalMoments: calculatePrincipalMoments(Iz, Iy, 0),
         sectionModulus: {
             Szt: yt > 0 ? Iz / yt : 0,
             Szb: yb > 0 ? Iz / yb : 0,
@@ -72,7 +79,7 @@ export const TShapeStrategy: ShapeStrategy = {
             Syb: xr > 0 ? Iy / xr : 0
         },
         radiusGyration: { rz, ry },
-        plasticModulus: { Zz: 0, Zy: 0 }
+        plasticModulus: { Zz, Zy }
     };
   },
   draw: (g, uiG, d) => {

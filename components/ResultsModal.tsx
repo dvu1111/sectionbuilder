@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { CalculationResult, ShapeType, Dimensions } from '../types';
 import { X } from 'lucide-react';
@@ -59,6 +60,12 @@ export const ResultsModal: React.FC<ResultsModalProps> = ({ isOpen, onClose, dat
             <SectionHeader title="Moment of Inertia" />
             <Row label="Iz" value={properties.momentInertia.Iz} unit="mm⁴" info="About horizontal centroidal axis" />
             <Row label="Iy" value={properties.momentInertia.Iy} unit="mm⁴" info="About vertical centroidal axis" />
+            <Row label="Izy" value={properties.momentInertia.Izy} unit="mm⁴" info="Product of inertia" />
+
+            <SectionHeader title="Principal Properties" />
+            <Row label="I₁ (Max)" value={properties.principalMoments.I1} unit="mm⁴" />
+            <Row label="I₂ (Min)" value={properties.principalMoments.I2} unit="mm⁴" />
+            <Row label="Angle (α)" value={properties.principalMoments.angle} unit="deg" info="Angle from Z-axis to I₁ axis" />
             
             <SectionHeader title="Elastic Section Moduli" />
             <Row label="Szt (Top)" value={properties.sectionModulus.Szt} unit="mm³" />

@@ -1,7 +1,7 @@
 
 import { ShapeType } from '../../types';
 import { ShapeStrategy } from '../types';
-import { drawDimensionLine } from '../utils';
+import { drawDimensionLine, calculatePrincipalMoments } from '../utils';
 
 export const CircularStrategy: ShapeStrategy = {
   type: ShapeType.CIRCULAR,
@@ -19,6 +19,7 @@ export const CircularStrategy: ShapeStrategy = {
         area: A,
         centroid: { y: r, z: r },
         momentInertia: { Iz: I, Iy: I, Izy: 0 },
+        principalMoments: calculatePrincipalMoments(I, I, 0),
         sectionModulus: { Szt: I/r, Szb: I/r, Syt: I/r, Syb: I/r },
         radiusGyration: { rz: r/2, ry: r/2 },
         plasticModulus: { Zz: (4/3)*Math.pow(r, 3), Zy: (4/3)*Math.pow(r, 3) }

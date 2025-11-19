@@ -2,7 +2,7 @@
 import * as d3 from 'd3';
 import { ShapeType } from '../../types';
 import { ShapeStrategy } from '../types';
-import { rectProps, drawDimensionLine } from '../utils';
+import { rectProps, drawDimensionLine, calculatePrincipalMoments } from '../utils';
 
 export const HollowRectangularStrategy: ShapeStrategy = {
   type: ShapeType.HOLLOW_RECTANGULAR,
@@ -31,6 +31,7 @@ export const HollowRectangularStrategy: ShapeStrategy = {
         area: totalArea,
         centroid: { y: d.depth/2, z: d.width/2 },
         momentInertia: { Iz, Iy, Izy: 0 },
+        principalMoments: calculatePrincipalMoments(Iz, Iy, 0),
         radiusGyration: { rz: totalArea > 0 ? Math.sqrt(Iz/totalArea) : 0, ry: totalArea > 0 ? Math.sqrt(Iy/totalArea) : 0 },
         sectionModulus: { 
             Szt: d.depth > 0 ? Iz / (d.depth/2) : 0, 

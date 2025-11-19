@@ -1,7 +1,7 @@
 
 import { ShapeType } from '../../types';
 import { ShapeStrategy } from '../types';
-import { rectProps, drawDimensionLine } from '../utils';
+import { rectProps, drawDimensionLine, calculatePrincipalMoments } from '../utils';
 
 export const RectangularStrategy: ShapeStrategy = {
   type: ShapeType.RECTANGULAR,
@@ -14,10 +14,15 @@ export const RectangularStrategy: ShapeStrategy = {
   ],
   calculate: (d) => {
     const props = rectProps(d.width, d.depth, d.depth / 2, d.width / 2);
+    const Iz = props.Iz_local;
+    const Iy = props.Iy_local;
+    const Izy = 0;
+
     return {
       area: props.area,
       centroid: { y: d.depth / 2, z: d.width / 2 },
-      momentInertia: { Iz: props.Iz_local, Iy: props.Iy_local, Izy: 0 },
+      momentInertia: { Iz, Iy, Izy },
+      principalMoments: calculatePrincipalMoments(Iz, Iy, Izy),
       sectionModulus: {
         Szt: props.Iz_local / (d.depth / 2),
         Szb: props.Iz_local / (d.depth / 2),
