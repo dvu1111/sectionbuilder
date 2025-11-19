@@ -1,7 +1,7 @@
 
 import { ShapeType, CustomPart, Point } from '../../types';
 import { ShapeStrategy } from '../types';
-import { calculatePolygonProperties, discretizeArc, calculatePlasticModulus, calculatePrincipalMoments } from '../utils';
+import { discretizeArc, calculateNumericProperties, calculatePlasticModulus, calculatePrincipalMoments } from '../utils';
 
 export const CustomStrategy: ShapeStrategy = {
   type: ShapeType.CUSTOM,
@@ -10,17 +10,8 @@ export const CustomStrategy: ShapeStrategy = {
   initialDimensions: { depth: 100, width: 100 },
   inputs: [], // Custom shape inputs are handled by custom tools in UI
   calculate: (d, customParts = []) => {
-    let totalArea = 0;
-    let sumAx = 0; // Sum of Area * Cx (Moment about Y-axis)
-    let sumAy = 0; // Sum of Area * Cy (Moment about X-axis)
     
-    let totalIxx_global = 0;
-    let totalIyy_global = 0;
-    let totalIxy_global = 0;
-
-    let globalMinX = Infinity, globalMaxX = -Infinity, globalMinY = Infinity, globalMaxY = -Infinity;
-    let hasSolid = false;
-
+    // 1. Prepare Parts (Discretize curves into polygons)
     const processedParts: { points: Point[], type: 'solid'|'hole' }[] = [];
 
     customParts.forEach(part => {
@@ -46,7 +37,7 @@ export const CustomStrategy: ShapeStrategy = {
               if (part.curves && part.curves[i]) {
                   const control = part.curves[i].controlPoint;
                   // Discretize arc
-                  const arcPoints = discretizeArc(p1, control, p2, 10);
+                  const arcPoints = discretizeArc(p1, control, p2, 16); // Increased segments for better accuracy
                   calcPoints.push(...arcPoints);
               } else {
                   calcPoints.push(p1);
@@ -55,38 +46,21 @@ export const CustomStrategy: ShapeStrategy = {
       }
 
       processedParts.push({ points: calcPoints, type: part.type });
-
-      const props = calculatePolygonProperties(calcPoints);
-      
-      // Apply sign based on Solid vs Hole
-      const sign = part.type === 'solid' ? 1 : -1;
-      
-      totalArea += sign * props.A;
-      sumAx += sign * props.A * props.Cx;
-      sumAy += sign * props.A * props.Cy;
-      
-      totalIxx_global += sign * props.Ixx;
-      totalIyy_global += sign * props.Iyy;
-      totalIxy_global += sign * props.Ixy;
-
-      if (part.type === 'solid') {
-          hasSolid = true;
-          globalMinX = Math.min(globalMinX, props.bounds.minX);
-          globalMaxX = Math.max(globalMaxX, props.bounds.maxX);
-          globalMinY = Math.min(globalMinY, props.bounds.minY);
-          globalMaxY = Math.max(globalMaxY, props.bounds.maxY);
-      }
     });
 
-    // Avoid division by zero
-    const Cx_abs = totalArea !== 0 ? sumAx / totalArea : 0;
-    const Cy_abs = totalArea !== 0 ? sumAy / totalArea : 0;
+    // 2. Use Robust Numeric Integration Calculation
+    // This handles: Disjoint holes (ignores them), Overlapping holes (correct subtraction), Complex Intersections
+    const props = calculateNumericProperties(processedParts);
+
+    const totalArea = props.area;
+    const Cx_abs = props.Cx;
+    const Cy_abs = props.Cy;
 
     // Calculate Moments of Inertia about the Centroid (Parallel Axis Theorem)
     // I_centroid = I_origin - A * d^2
-    const Iz = totalIxx_global - totalArea * Cy_abs * Cy_abs;
-    const Iy = totalIyy_global - totalArea * Cx_abs * Cx_abs;
-    const Izy_raw = totalIxy_global - totalArea * Cx_abs * Cy_abs;
+    const Iz = props.Ixx - totalArea * Cy_abs * Cy_abs;
+    const Iy = props.Iyy - totalArea * Cx_abs * Cx_abs;
+    const Izy_raw = props.Ixy - totalArea * Cx_abs * Cy_abs;
 
     // Invert Izy to match Structural Engineering convention (Y-up) vs SVG (Y-down)
     const Izy = -Izy_raw;
@@ -95,24 +69,28 @@ export const CustomStrategy: ShapeStrategy = {
     const ry = totalArea > 0 ? Math.sqrt(Math.abs(Iy) / totalArea) : 0;
 
     // Calculate Bounding Box distances from Centroid
+    // Use the bounds returned from the numeric solver (which are derived from solids only)
+    const { minX, maxX, minY, maxY } = props.bounds;
+    const hasSolid = totalArea > 0; // Approximate check
+
     // Centroid Y (Distance from Bottom Fiber)
-    const Cy_struct = (hasSolid && globalMaxY !== -Infinity) ? (globalMaxY - Cy_abs) : 0;
+    const Cy_struct = hasSolid ? (maxY - Cy_abs) : 0;
     
     // Centroid Z (Distance from Left Fiber)
-    const Cz_struct = (hasSolid && globalMinX !== Infinity) ? (Cx_abs - globalMinX) : 0;
+    const Cz_struct = hasSolid ? (Cx_abs - minX) : 0;
 
     // Section Moduli
-    const y_top_dist = Math.abs(Cy_abs - globalMinY);
-    const y_bot_dist = Math.abs(globalMaxY - Cy_abs);
-    const z_right_dist = Math.abs(globalMaxX - Cx_abs);
-    const z_left_dist = Math.abs(Cx_abs - globalMinX);
+    const y_top_dist = Math.abs(Cy_abs - minY);
+    const y_bot_dist = Math.abs(maxY - Cy_abs);
+    const z_right_dist = Math.abs(maxX - Cx_abs);
+    const z_left_dist = Math.abs(Cx_abs - minX);
 
-    // Plastic Modulus Calculation using Fiber Method
+    // Plastic Modulus Calculation
     let Zz = 0;
     let Zy = 0;
 
-    if (customParts.length > 0 && totalArea > 0 && hasSolid) {
-        const plasticProps = calculatePlasticModulus(processedParts, { minX: globalMinX, maxX: globalMaxX, minY: globalMinY, maxY: globalMaxY });
+    if (customParts.length > 0 && totalArea > 0) {
+        const plasticProps = calculatePlasticModulus(processedParts, { minX, maxX, minY, maxY });
         Zz = plasticProps.Zz;
         Zy = plasticProps.Zy;
     }
@@ -122,7 +100,7 @@ export const CustomStrategy: ShapeStrategy = {
 
     return {
       area: totalArea,
-      centroid: { y: Cy_struct, z: Cz_struct }, // Reporting relative to bounds
+      centroid: { y: Cy_struct, z: Cz_struct }, // Reporting relative to solid bounds
       momentInertia: { Iz, Iy, Izy },
       principalMoments: principal,
       sectionModulus: {
